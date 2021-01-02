@@ -25,3 +25,6 @@ Incorrect number of parameters=
 Unable to parse parameters=
 Undeleted pocket dimension.=
 List all pocket dimensions=
+Teleport to personal pocket dimension failed after @1 tries.=
+Teleport to your personal pocket dimension=
+The first time you teleport to your personal pocket, you need to give it a name. Use /pocket_personal pocketname=

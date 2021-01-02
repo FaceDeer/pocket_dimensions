@@ -69,39 +69,28 @@ end
 -- Loading and saving data
 local filename = minetest.get_worldpath() .. "/pocket_dimensions_data.lua"
 
--- TODO there's some redundancy in this save file due to dual-indexing, maybe eliminate that
-
 local load_data = function()
 	local f, e = loadfile(filename)
 	if f then
-		data = f()
+		local data = f()
 		pockets_by_hash = data.pockets_by_hash
-		pockets_by_name = data.pockets_by_name
+		pockets_by_name = {} -- to be filled from pockets_by_hash
 		player_origin = data.player_origin
 		personal_pockets = data.personal_pockets
+	else
+		return
 	end
 	
 	-- validate and add saved protected areas
-	local count_hash = 0
-	local count_name = 0
 	for hash, pocket_data in pairs(pockets_by_hash) do
-		count_hash = count_hash + 1
 		if hash ~= minetest.hash_node_position(pocket_data.minp) then
 			minetest.log("error", "[pocket_dimensions] Hash mismatch for " .. tostring(hash) .. ", " .. dump(pocket_data))
+			pocket_data.minp = minetest.get_position_from_hash(hash)
 		end
-		
+		pockets_by_name[pocket_data.name] = pocket_data		
 		if pocket_data.protected and pocket_data.owner then
 			protected_areas:insert_area(pocket_data.minp, vector.add(pocket_data.minp, mapblock_size), pocket_data.owner)
 		end
-	end
-	for name, pocket_data in pairs(pockets_by_name) do
-		count_name = count_name + 1
-		if name ~= pocket_data.name then
-			minetest.log("error", "[pocket_dimensions] Name mismatch for " .. name .. ", " .. dump(pocket_data))
-		end
-	end
-	if count_hash ~= count_name then
-		minetest.log("error", "[pocket_dimensions] name/hash count mismatch.")
 	end
 end
 
@@ -170,23 +159,10 @@ local perlin_noise = PerlinNoise(perlin_params)
 
 -----------------------------------------------------------------------
 
-minetest.register_node("pocket_dimensions:border", {
+local border_def = {
     description = S("The boundary of a pocket dimension"),
     groups = {not_in_creative_inventory = 1},
     drawtype = "normal",  -- See "Node drawtypes"
-    tiles = {{
-		name="pocket_dimensions_cloudy_seamless.png",
-		animation = {
-			type = "vertical_frames",
-			aspect_w = 128,
-			aspect_h = 128,
-			length = 10.0,
-		},
-		tileable_vertical=true,
-		tileable_horizontal=true,
-		align_style="world",
-		scale=8,
-	}},
 	light_source = 4,
     paramtype = "light",  -- See "Nodes"
     paramtype2 = "none",  -- See "Nodes"
@@ -213,9 +189,33 @@ minetest.register_node("pocket_dimensions:border", {
 		end
 		-- TODO: some fallback that gets the player out of the pocket dimension if their origin got lost somehow
 	end,
-})
+	on_construct = function(pos)
+		-- if somehow a player gets ahold of one of these, ensure they can't place it anywhere.
+		minetest.set_node(pos, {name="air"})
+	end,
+	after_destruct = function(pos, oldnode)
+		-- likewise, don't let players remove these if they manage it somehow
+		minetest.set_node(pos, oldnode)
+	end,
+}
 
-local c_border = minetest.get_content_id("pocket_dimensions:border")
+border_def.tiles = {"pocket_dimensions_orange.png"}
+minetest.register_node("pocket_dimensions:border1", border_def)
+border_def.tiles = {"pocket_dimensions_black.png"}
+minetest.register_node("pocket_dimensions:border2", border_def)
+
+local c_border1 = minetest.get_content_id("pocket_dimensions:border1")
+local c_border2 = minetest.get_content_id("pocket_dimensions:border2")
+
+local get_border = function(x,y,z)
+	x = x + 4
+	y = y + 4
+	z = z + 4
+	if x%8 == 0 or y%8 == 0 or z%8 == 0 then
+		return c_border1
+	end
+	return c_border2
+end
 
 --------------------------------------------------------------------------------------------------
 
@@ -245,7 +245,7 @@ local emerge_callback = function(blockpos, action, calls_remaining, pocket_data)
 	
 	for vi, x, y, z in area:iterp_xyz(minp, maxp) do
 		if x == minp.x or x == maxp.x or y == minp.y or y == maxp.y or z == minp.z or z == maxp.z then
-			data[vi] = c_border
+			data[vi] = get_border(x,y,z)
 		elseif default_modpath then
 			local terrain_level = math.floor(terrain_values[x-minp.x+1][z-minp.z+1] + surface)
 			local below_water = y < surface
@@ -335,7 +335,7 @@ local teleport_player_to_pocket = function(player_name, pocket_name)
 	end
 
 	local dest = vector.add(pocket_data.minp, pocket_data.destination)
-	player = minetest.get_player_by_name(player_name)
+	local player = minetest.get_player_by_name(player_name)
 	if not player_origin[player_name] then
 		player_origin[player_name] = player:get_pos()
 		save_data()
@@ -351,7 +351,7 @@ minetest.register_node("pocket_dimensions:portal", {
     description = S("Pocket Dimension Access"),
     groups = {oddly_breakable_by_hand = 1},
 	drawtype = "normal",
-	tiles = {"something.png"},
+	tiles = {"pocket_dimensions_portal_base.png","pocket_dimensions_portal_base.png","pocket_dimensions_portal.png"},
 	paramtype="light",
 	paramtype2="facedir",
 	is_ground_content=false,
