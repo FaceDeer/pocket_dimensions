@@ -17,6 +17,7 @@ local max_pockets = block_grid_dimension * block_grid_dimension
 local layer_elevation = tonumber(minetest.settings:get("pocket_dimensions_altitude")) or 30000
 layer_elevation = math.floor(layer_elevation / mapblock_size) * mapblock_size - 32 -- round to mapblock boundary
 
+local personal_pockets_enabled = minetest.settings:get_bool("pocket_dimensions_personal_pockets", false)
 
 local c_air = minetest.get_content_id("air")
 
@@ -45,6 +46,7 @@ end
 local pockets_by_hash = {}
 local pockets_by_name = {}
 local player_origin = {}
+local personal_pockets = {}
 
 local protected_areas = AreaStore()
 
@@ -67,6 +69,8 @@ end
 -- Loading and saving data
 local filename = minetest.get_worldpath() .. "/pocket_dimensions_data.lua"
 
+-- TODO there's some redundancy in this save file due to dual-indexing, maybe eliminate that
+
 local load_data = function()
 	local f, e = loadfile(filename)
 	if f then
@@ -74,6 +78,7 @@ local load_data = function()
 		pockets_by_hash = data.pockets_by_hash
 		pockets_by_name = data.pockets_by_name
 		player_origin = data.player_origin
+		personal_pockets = data.personal_pockets
 	end
 	
 	-- validate and add saved protected areas
@@ -105,6 +110,7 @@ local save_data = function()
 	data.pockets_by_hash = pockets_by_hash
 	data.pockets_by_name = pockets_by_name
 	data.player_origin = player_origin
+	data.personal_pockets = personal_pockets
 	local file, e = io.open(filename, "w");
 	if not file then
 		return error(e);
@@ -205,6 +211,7 @@ minetest.register_node("pocket_dimensions:border", {
 			player_origin[name] = nil
 			save_data()
 		end
+		-- TODO: some fallback that gets the player out of the pocket dimension if their origin got lost somehow
 	end,
 })
 
@@ -287,7 +294,8 @@ local create_new_pocket = function(pocket_name, player_name, set_as_owner)
 		return
 	end
 
-	if pockets_by_name[string.lower(pocket_name)] then
+	-- TODO "fuzzy" collision detection, eg capital letters and collapse whitespace
+	if pockets_by_name[pocket_name] then
 		if player_name then
 			minetest.chat_send_player(player_name, S("The name @1 is already in use.", pocket_name))
 		end
@@ -322,7 +330,7 @@ end
 
 local teleport_player_to_pocket = function(player_name, pocket_name)
 	local pocket_data = pockets_by_name[pocket_name]
-	if pocket_data == nil then
+	if pocket_data == nil or pocket_data.pending then
 		return false
 	end
 
@@ -399,7 +407,7 @@ local get_pocket_data = function(player_name, pocket_name)
 		return
 	end
 	if pocket_data.pending then
-		minetest.chat_send_player(name, S("Pocket dimension not yet initialized"))
+		minetest.chat_send_player(player_name, S("Pocket dimension not yet initialized"))
 		return
 	end
 	return pocket_data
@@ -412,7 +420,7 @@ minetest.register_chatcommand("pocket_teleport", {
 	func = function(name, param)
 		local pocket_data = get_pocket_data(name, param)
 		if pocket_data then
-			teleport_player_to_pocket(player_name, pocket_name)
+			teleport_player_to_pocket(name, param)
 		end
 	end,
 })
@@ -533,6 +541,46 @@ minetest.register_chatcommand("pocket_list", {
 		end
 	end,
 })
+
+if personal_pockets_enabled then
+
+	function teleport_to_pending(pocket_name, player_name, count)
+		local teleported = teleport_player_to_pocket(player_name, pocket_name)
+		if teleported then
+			return
+		end
+		if not teleported and count < 10 then
+			minetest.after(1, teleport_to_pending, pocket_name, player_name, count + 1)
+			return
+		end
+		minetest.chat_send_player(player_name, S("Teleport to personal pocket dimension failed after @1 tries.", count))
+	end
+
+	minetest.register_chatcommand("pocket_personal", {
+		params = "[pocketname]",
+--		privs = {}, -- TODO a new privilege here?
+		description = S("Teleport to your personal pocket dimension"),
+		func = function(player_name, param)
+	
+			local pocket_data = personal_pockets[player_name]
+			if pocket_data then
+				teleport_player_to_pocket(player_name, pocket_data.name)
+				return
+			end
+	
+			if param == nil or param == "" then
+				minetest.chat_send_player(player_name, S("The first time you teleport to your personal pocket, you need to give it a name. Use /pocket_personal pocketname"))
+				return
+			end
+			
+			pocket_data = create_new_pocket(param, player_name, player_name)
+			if pocket_data then
+				personal_pockets[player_name] = pocket_data
+				teleport_to_pending(param, player_name, 1)
+			end
+		end,
+	})
+end
 
 
 
