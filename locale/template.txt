@@ -1,13 +1,27 @@
 # textdomain: pocket_dimensions
 
 
+
 ### init.lua ###
 
 The boundary of a pocket dimension=
 Please provide a name for the pocket dimension=
 The name @1 is already in use.=
-Failed to find a new index for this pocket dimension.=
-Teleport to a named pocket dimension, if it exists.=
-Dimension doesn't exist=
-Dimension not yet initialized=
-Create a named pocket dimension.=
+Pocket dimension @1 created=
+Failed to find a new location for this pocket dimension.=
+Pocket Dimension Access=
+Teleporter to pocket dimension@n@1=
+Pocket dimension doesn't exist=
+Pocket dimension not yet initialized=
+Teleport to a pocket dimension, if it exists.=
+Create a pocket dimension.=
+Set the ownership of a pocket dimension.=
+Incorrect parameter count=
+Toggles whether a pocket is protected (only has an effect if the pocket also has an owner).=
+Delete a pocket dimension. Note that this does not affect the map, it only removes the dimension's location from pocket_dimension's records.=
+Deleted pocket dimension =
+Restore a deleted pocket dimension. Be certain to get the coordinates exactly right, no checking is done to ensure the map is correctly configured.=
+Incorrect number of parameters=
+Unable to parse parameters=
+Undeleted pocket dimension.=
+List all pocket dimensions=

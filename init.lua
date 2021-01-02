@@ -3,6 +3,21 @@ local S = minetest.get_translator(minetest.get_current_modname())
 local MP = minetest.get_modpath(minetest.get_current_modname())
 dofile(MP.."/voxelarea_iterator.lua")
 
+
+local mapgen_chunksize = tonumber(minetest.get_mapgen_setting("chunksize"))
+local mapblock_size = mapgen_chunksize * 16 -- should be 80 in almost all cases, but avoiding hardcoding it for extensibility
+local block_grid_dimension = math.floor(61840 / mapblock_size) -- should be 773
+local max_pockets = block_grid_dimension * block_grid_dimension
+
+--The world is a cube of side length 61840. Coordinates go from −30912 to 30927 in any direction.
+--The side length is a multiple of 80, an important number in Minetest.
+--773 * 80 = 61840
+-- so there are 773 * 773 = 597529 chunk in a horizontal layer
+
+local layer_elevation = tonumber(minetest.settings:get("pocket_dimensions_altitude")) or 30000
+layer_elevation = math.floor(layer_elevation / mapblock_size) * mapblock_size - 32 -- round to mapblock boundary
+
+
 local c_air = minetest.get_content_id("air")
 
 local c_dirt
@@ -25,10 +40,28 @@ end
 -- destination = a vector relative to the pocket's minp that is where new arrivals teleport tonumber
 -- name = a name for the pocket.
 -- owner = if set, this pocket is "owned" by this particular player.
+-- protected = if true, this pocket is protected and only the owner can modify its contents
 
 local pockets_by_hash = {}
 local pockets_by_name = {}
 local player_origin = {}
+
+local protected_areas = AreaStore()
+
+-- protection override
+local old_is_protected = minetest.is_protected
+function minetest.is_protected(pos, name)
+	if minetest.check_player_privs(name, "protection_bypass") then
+		return false
+	end
+	local protection = protected_areas:get_areas_for_pos(pos, false, true)
+	for _, area in pairs(protection) do
+		if area.data ~= name then
+			return true
+		end
+	end
+	return old_is_protected(pos, name)
+end
 
 --------------------------------------------------------------------------------------
 -- Loading and saving data
@@ -43,13 +76,17 @@ local load_data = function()
 		player_origin = data.player_origin
 	end
 	
-	-- validate
+	-- validate and add saved protected areas
 	local count_hash = 0
 	local count_name = 0
 	for hash, pocket_data in pairs(pockets_by_hash) do
 		count_hash = count_hash + 1
 		if hash ~= minetest.hash_node_position(pocket_data.minp) then
 			minetest.log("error", "[pocket_dimensions] Hash mismatch for " .. tostring(hash) .. ", " .. dump(pocket_data))
+		end
+		
+		if pocket_data.protected and pocket_data.owner then
+			protected_areas:insert_area(pocket_data.minp, vector.add(pocket_data.minp, mapblock_size), pocket_data.owner)
 		end
 	end
 	for name, pocket_data in pairs(pockets_by_name) do
@@ -78,19 +115,6 @@ end
 
 load_data()
 ----------------------------------------------------------------------------------------
-
-local mapgen_chunksize = tonumber(minetest.get_mapgen_setting("chunksize"))
-local mapblock_size = mapgen_chunksize * 16 -- should be 80 in almost all cases, but avoiding hardcoding it for extensibility
-local block_grid_dimension = math.floor(61840 / mapblock_size) -- should be 773
-local max_pockets = block_grid_dimension * block_grid_dimension
-
---The world is a cube of side length 61840. Coordinates go from −30912 to 30927 in any direction.
---The side length is a multiple of 80, an important number in Minetest.
---773 * 80 = 61840
--- so there are 773 * 773 = 597529 chunk in a horizontal layer
-
-local layer_elevation = tonumber(minetest.settings:get("pocket_dimensions_altitude")) or 30000
-layer_elevation = math.floor(layer_elevation / mapblock_size) * mapblock_size - 32 -- round to mapblock boundary
 
 local index_to_minp = function(index)
 	assert(index >=0 and index < max_pockets, "index out of bounds")
@@ -157,7 +181,7 @@ minetest.register_node("pocket_dimensions:border", {
 		align_style="world",
 		scale=8,
 	}},
-	light_source = 1,
+	light_source = 4,
     paramtype = "light",  -- See "Nodes"
     paramtype2 = "none",  -- See "Nodes"
     is_ground_content = false, -- If false, the cave generator and dungeon generator will not carve through this node.
@@ -363,21 +387,33 @@ minetest.register_node("pocket_dimensions:portal", {
 -------------------------------------------------------------------------------
 -- Admin commands
 
+
+local get_pocket_data = function(player_name, pocket_name)
+	if pocket_name == "" or pocket_name == nil then
+		minetest.chat_send_player(player_name, S("Please provide a name for the pocket dimension"))
+		return
+	end
+	local pocket_data = pockets_by_name[pocket_name]
+	if pocket_data == nil then
+		minetest.chat_send_player(player_name, S("Pocket dimension doesn't exist"))
+		return
+	end
+	if pocket_data.pending then
+		minetest.chat_send_player(name, S("Pocket dimension not yet initialized"))
+		return
+	end
+	return pocket_data
+end
+
 minetest.register_chatcommand("pocket_teleport", {
-	params = "[pocketname]",
+	params = "pocketname",
 	privs = {server=true},
 	description = S("Teleport to a pocket dimension, if it exists."),
 	func = function(name, param)
-		local pocket_data = pockets_by_name[param]
-		if pocket_data == nil then
-			minetest.chat_send_player(name, S("Pocket dimension doesn't exist"))
-			return
+		local pocket_data = get_pocket_data(name, param)
+		if pocket_data then
+			teleport_player_to_pocket(player_name, pocket_name)
 		end
-		if pocket_data.pending then
-			minetest.chat_send_player(name, S("Pocket dimension not yet initialized"))
-			return
-		end
-		teleport_player_to_pocket(player_name, pocket_name)
 	end,
 })
 
@@ -390,50 +426,56 @@ minetest.register_chatcommand("pocket_create", {
 	end,
 })
 
+
+local update_protected = function(pocket_data)
+	-- clear any existing protection
+	protected = protected_areas:get_areas_for_pos(pocket_data.minp)
+	for id, _ in pairs(protected) do
+		protected_areas:remove_area(id)
+	end
+	-- add protection if warranted
+	if pocket_data.protected and pocket_data.owner then
+		protected_areas:insert_area(pocket_data.minp, vector.add(pocket_data.minp, mapblock_size), pocket_data.owner)
+	end
+end
+
 -- TODO doesn't handle pocket names with spaces
 minetest.register_chatcommand("pocket_set_owner", {
-	params = "pocketname ownername",
+	params = "pocketname [ownername]",
 	privs = {server=true},
 	description = S("Set the ownership of a pocket dimension."),
 	func = function(name, param)
 		param = param:split(" ")
-		if #param ~= 2 then
+		if #param < 1 or #param > 2 then
 			minetest.chat_send_player(name, S("Incorrect parameter count"))
 			return
 		end
 		
 		local pocket_name = param[1]
-		local player_name = param[2]
-		local pocket_data = pocket_by_name[pocket_name]
+		local player_name = param[2] -- can be nil
+		local pocket_data = get_pocket_data(name, pocket_name)
 		if pocket_data == nil then
-			minetest.chat_send_player(name, S("Pocket dimension doesn't exist"))
 			return
 		end
-		
-		minetest.log("action", "[pocket_dimensions] " .. name .. " changed ownership of pocket dimension " .. pocket_name .. " from " .. tostring(pocket_data.owner).. " to " .. player_name)
 		pocket_data.owner = player_name
+		update_protected(pocket_data)		
+		minetest.log("action", "[pocket_dimensions] " .. name .. " changed ownership of pocket dimension " .. pocket_name .. " from " .. tostring(pocket_data.owner).. " to " .. tostring(player_name))
 		save_data()
 	end,
 })
 
-minetest.register_chatcommand("pocket_clear_owner", {
+minetest.register_chatcommand("pocket_protect", {
 	params = "pocketname",
 	privs = {server=true},
-	description = S("Clear the ownership of a pocket dimension."),
+	description = S("Toggles whether a pocket is protected (only has an effect if the pocket also has an owner)."),
 	func = function(name, param)
-		if param == "" or param == nil then
-			minetest.chat_send_player(name, S("Please provide a name for the pocket dimension"))
-			return
-		end
-	
-		local pocket_data = pocket_by_name[param]
+		local pocket_data = get_pocket_data(name, param)
 		if pocket_data == nil then
-			minetest.chat_send_player(name, S("Pocket dimension doesn't exist"))
 			return
-		end
-		
-		minetest.log("action", "[pocket_dimensions] " .. name .. " cleared ownership of pocket dimension " .. pocket_name .. " from " .. tostring(pocket_data.owner))
-		pocket_data.owner = nil
+		end		
+		pocket_data.protected = not pocket_data.protected
+		update_protected(pocket_data)
+		minetest.log("action", "[pocket_dimensions] " .. name .. " set protection ownership of pocket dimension " .. param .. " to " .. tostring(pocket_data.protected))
 		save_data()
 	end,
 })
@@ -443,9 +485,8 @@ minetest.register_chatcommand("pocket_delete", {
 	privs = {server = true},
 	description = S("Delete a pocket dimension. Note that this does not affect the map, it only removes the dimension's location from pocket_dimension's records."),
 	func = function(name, param)
-		local pocket_data = pockets_by_name[param]
+		local pocket_data = get_pocket_data(name, param)
 		if pocket_data == nil then
-			minetest.chat_send_player(name, S("Pocket dimension doesn't exist"))
 			return
 		end
 		
@@ -488,7 +529,7 @@ minetest.register_chatcommand("pocket_list", {
 	description = S("List all pocket dimensions"),
 	func = function(player_name, param)
 		for name, pocket_data in pairs(pockets_by_name) do
-			minetest.chat_send_player(player_name, name .. ": owned by " .. tostring(pocket_data.owner))
+			minetest.chat_send_player(player_name, name .. ": owned by " .. tostring(pocket_data.owner) .. ", protected: " .. tostring(pocket_data.protected))
 		end
 	end,
 })
