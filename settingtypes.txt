@@ -1,0 +1,5 @@
+#Try to ensure that this doesn't overlap with any regions that the players
+#will normally be able to reach, this mod may overwrite chunks of map at this
+#altitude in the course of gameplay. Don't change this value once pocket
+#dimensions have been created or they will be inaccessible
+pocket_dimensions_altitude (Approximate y coordinate pocket dimensions will exist at) int 30000

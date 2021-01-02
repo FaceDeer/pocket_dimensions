@@ -1,0 +1,13 @@
+# textdomain: pocket_dimensions
+
+
+### init.lua ###
+
+The boundary of a pocket dimension=
+Please provide a name for the pocket dimension=
+The name @1 is already in use.=
+Failed to find a new index for this pocket dimension.=
+Teleport to a named pocket dimension, if it exists.=
+Dimension doesn't exist=
+Dimension not yet initialized=
+Create a named pocket dimension.=
