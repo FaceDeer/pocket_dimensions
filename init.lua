@@ -87,7 +87,7 @@ local load_data = function()
 			minetest.log("error", "[pocket_dimensions] Hash mismatch for " .. tostring(hash) .. ", " .. dump(pocket_data))
 			pocket_data.minp = minetest.get_position_from_hash(hash)
 		end
-		pockets_by_name[pocket_data.name] = pocket_data		
+		pockets_by_name[string.lower(pocket_data.name)] = pocket_data		
 		if pocket_data.protected and pocket_data.owner then
 			protected_areas:insert_area(pocket_data.minp, vector.add(pocket_data.minp, mapblock_size), pocket_data.owner)
 		end
@@ -97,7 +97,6 @@ end
 local save_data = function()
 	local data = {}
 	data.pockets_by_hash = pockets_by_hash
-	data.pockets_by_name = pockets_by_name
 	data.player_origin = player_origin
 	data.personal_pockets = personal_pockets
 	local file, e = io.open(filename, "w");
@@ -159,62 +158,156 @@ local perlin_noise = PerlinNoise(perlin_params)
 
 -----------------------------------------------------------------------
 
-local border_def = {
-    description = S("The boundary of a pocket dimension"),
-    groups = {not_in_creative_inventory = 1},
-    drawtype = "normal",  -- See "Node drawtypes"
-	light_source = 4,
-    paramtype = "light",  -- See "Nodes"
-    paramtype2 = "none",  -- See "Nodes"
-    is_ground_content = false, -- If false, the cave generator and dungeon generator will not carve through this node.
-    sunlight_propagates = true, -- If true, sunlight will go infinitely through this node
-    walkable = true,  -- If true, objects collide with node
-    pointable = true,  -- If true, can be pointed at
-    diggable = false,  -- If false, can never be dug
-    node_box = {type="regular"},  -- See "Node boxes"
-    --sounds = 
-    can_dig = function(pos, player) return false end,
-    on_blast = function(pos, intensity) return false end,
-	on_rightclick = function(pos, node, clicker, itemstack, pointed_thing)
-		local clicker_pos = clicker:get_pos()
-		if vector.distance(pos, clicker_pos) > 2 then
-			return
-		end
-		local name = clicker:get_player_name()
-		local origin = player_origin[name]
-		if origin then
-			clicker:set_pos(origin)
-			player_origin[name] = nil
-			save_data()
-		end
-		-- TODO: some fallback that gets the player out of the pocket dimension if their origin got lost somehow
-	end,
-	on_construct = function(pos)
-		-- if somehow a player gets ahold of one of these, ensure they can't place it anywhere.
-		minetest.set_node(pos, {name="air"})
-	end,
-	after_destruct = function(pos, oldnode)
-		-- likewise, don't let players remove these if they manage it somehow
-		minetest.set_node(pos, oldnode)
-	end,
-}
+local get_border_def = function(override)
+	local def = {
+		description = S("The boundary of a pocket dimension"),
+		groups = {not_in_creative_inventory = 1},
+		drawtype = "normal",  -- See "Node drawtypes"
+		light_source = 4,
+		paramtype = "light",  -- See "Nodes"
+		paramtype2 = "none",  -- See "Nodes"
+		is_ground_content = false, -- If false, the cave generator and dungeon generator will not carve through this node.
+		sunlight_propagates = true, -- If true, sunlight will go infinitely through this node
+		walkable = true,  -- If true, objects collide with node
+		pointable = true,  -- If true, can be pointed at
+		diggable = false,  -- If false, can never be dug
+		node_box = {type="regular"},  -- See "Node boxes"
+		--sounds = 
+		can_dig = function(pos, player) return false end,
+		on_blast = function(pos, intensity) return false end,
+		on_rightclick = function(pos, node, clicker, itemstack, pointed_thing)
+			local clicker_pos = clicker:get_pos()
+			if vector.distance(pos, clicker_pos) > 2 then
+				return
+			end
+			local name = clicker:get_player_name()
+			local origin = player_origin[name]
+			if origin then
+				clicker:set_pos(origin)
+				player_origin[name] = nil
+				save_data()
+			end
+			-- TODO: some fallback that gets the player out of the pocket dimension if their origin got lost somehow
+		end,
+		on_construct = function(pos)
+			-- if somehow a player gets ahold of one of these, ensure they can't place it anywhere.
+			minetest.set_node(pos, {name="air"})
+		end,
+		after_destruct = function(pos, oldnode)
+			-- likewise, don't let players remove these if they manage it somehow
+			minetest.set_node(pos, oldnode)
+		end,
+	}
+	for key, value in pairs(override) do
+		def[key] = value
+	end
+	return def
+end
 
-border_def.tiles = {"pocket_dimensions_orange.png"}
-minetest.register_node("pocket_dimensions:border1", border_def)
-border_def.tiles = {"pocket_dimensions_black.png"}
-minetest.register_node("pocket_dimensions:border2", border_def)
 
-local c_border1 = minetest.get_content_id("pocket_dimensions:border1")
-local c_border2 = minetest.get_content_id("pocket_dimensions:border2")
+minetest.register_node("pocket_dimensions:border_orange", get_border_def({tiles = {{name="pocket_dimensions_white.png", color="#ff8c00"}}}))
+minetest.register_node("pocket_dimensions:border_black", get_border_def({tiles = {{name="pocket_dimensions_white.png", color="#000000"}}}))
 
-local get_border = function(x,y,z)
+local c_border_orange = minetest.get_content_id("pocket_dimensions:border_orange")
+local c_border_black = minetest.get_content_id("pocket_dimensions:border_black")
+
+local get_holodeck_border = function(x,y,z)
 	x = x + 4
 	y = y + 4
 	z = z + 4
 	if x%8 == 0 or y%8 == 0 or z%8 == 0 then
-		return c_border1
+		return c_border_orange
 	end
-	return c_border2
+	return c_border_black
+end
+
+-- taken from lua_api.txt
+--local default_sky_colors = {day_sky = "#8cbafa", day_horizon="#9bc1f0", dawn_sky="#b4bafa", dawn_horizon="#bac1f0", night_sky="#006aff", night_horizon="#4090ff"}
+
+-- From midnight to midday
+local sky_colors = {
+	"#010103",
+	"#010a18",
+	"#01183a",
+	"#002b69",
+	"#01347b",
+	"#304872",
+	"#887061",
+	"#886f61",
+	"#c38a56",
+	"#c1926a",
+	"#a9a4ad",
+	"#a2abc1",
+	"#9ab0d2",
+	"#95b4e2",
+	"#91b7ef",
+	"#8ebaf7",
+	"#8cbbfa",
+}
+
+for i, color in ipairs(sky_colors) do
+	minetest.register_node("pocket_dimensions:border_sky_" .. i, get_border_def(
+	{
+		tiles = {{name="pocket_dimensions_white.png", color=color}},
+		-- NOTE! Only set the timer running on the node at minp. Otherwise chaos and destruction.
+		on_timer = function(pos, elapsed)
+			local timeofday = minetest.get_timeofday()
+			--  0 for midnight, 0.5 for midday
+			if timeofday < 0.5 then
+				timeofday = math.ceil(timeofday * 16)
+			else
+				timeofday = math.ceil(math.abs(1 - timeofday) * 16)
+			end
+			if timeofday ~= i then
+				local c_new_sky = minetest.get_content_id("pocket_dimensions:border_sky_" .. timeofday)
+				local maxp = vector.add(pos, mapblock_size)
+				local vm = minetest.get_voxel_manip(pos, maxp)
+				local emin, emax = vm:get_emerged_area()
+				local data = vm:get_data()
+				local area = VoxelArea:new{MinEdge = emin, MaxEdge = emax}
+				for vi, x, y, z in area:iterp_xyz(pos, maxp) do
+					if x == pos.x or x == maxp.x or y == pos.y or y == maxp.y or z == pos.z or z == maxp.z then
+						data[vi] = c_new_sky
+					end
+				end
+				vm:set_data(data)
+				vm:write_to_map()
+			end
+			minetest.get_node_timer(pos):start(30)
+		end,
+	}))
+end
+
+local c_border_sky = minetest.get_content_id("pocket_dimensions:border_sky_1")
+local get_sky_border = function(x,y,z)
+	return c_border_sky
+end
+
+
+minetest.register_node("pocket_dimensions:border_static", get_border_def(
+	{tiles = {{name="pocket_dimensions_static.png", animation= {
+			type = "vertical_frames",
+			aspect_w = 16,
+			aspect_h = 16,
+			length = 1.0,
+		},
+		color="#888888"}}})
+)
+local c_border_static = minetest.get_content_id("pocket_dimensions:border_static")
+local get_static_border= function(x,y,z)
+	return c_border_static
+end
+
+minetest.register_node("pocket_dimensions:border_glass", get_border_def(
+	{
+		drawtype = "glasslike_framed_optional",
+		tiles = {"pocket_dimensions_transparent.png"},
+		paramtype2 = "glasslikeliquidlevel",
+	}
+))
+local c_border_glass = minetest.get_content_id("pocket_dimensions:border_glass")
+local get_glass_border = function(x,y,z)
+	return c_border_glass
 end
 
 --------------------------------------------------------------------------------------------------
@@ -243,9 +336,10 @@ local emerge_callback = function(blockpos, action, calls_remaining, pocket_data)
 	-- Default is down on the floor of the border walls, in case default mod isn't installed and no landscape is created
 	local middlep = {x=minp.x+math.floor(mapblock_size/2), y=minp.y+2, z=minp.z+math.floor(mapblock_size/2)}
 	
+	minetest.get_node_timer(minp):start(5) -- sets the sky updater node running
 	for vi, x, y, z in area:iterp_xyz(minp, maxp) do
 		if x == minp.x or x == maxp.x or y == minp.y or y == maxp.y or z == minp.z or z == maxp.z then
-			data[vi] = get_border(x,y,z)
+			data[vi] = get_glass_border(x,y,z)
 		elseif default_modpath then
 			local terrain_level = math.floor(terrain_values[x-minp.x+1][z-minp.z+1] + surface)
 			local below_water = y < surface
@@ -294,8 +388,8 @@ local create_new_pocket = function(pocket_name, player_name, set_as_owner)
 		return
 	end
 
-	-- TODO "fuzzy" collision detection, eg capital letters and collapse whitespace
-	if pockets_by_name[pocket_name] then
+	
+	if pockets_by_name[string.lower(pocket_name)] then
 		if player_name then
 			minetest.chat_send_player(player_name, S("The name @1 is already in use.", pocket_name))
 		end
@@ -310,7 +404,7 @@ local create_new_pocket = function(pocket_name, player_name, set_as_owner)
 		if pockets_by_hash[hash] == nil then
 			local pocket_data = {pending=true, minp=pos, name=pocket_name}
 			pockets_by_hash[hash] = pocket_data
-			pockets_by_name[pocket_name] = pocket_data
+			pockets_by_name[string.lower(pocket_name)] = pocket_data
 			if set_as_owner then
 				pocket_data.owner = set_as_owner
 			end
@@ -329,7 +423,7 @@ local create_new_pocket = function(pocket_name, player_name, set_as_owner)
 end
 
 local teleport_player_to_pocket = function(player_name, pocket_name)
-	local pocket_data = pockets_by_name[pocket_name]
+	local pocket_data = pockets_by_name[string.lower(pocket_name)]
 	if pocket_data == nil or pocket_data.pending then
 		return false
 	end
@@ -371,7 +465,7 @@ minetest.register_node("pocket_dimensions:portal", {
 			return
 		end
 
-		local pocket_data = pockets_by_name[text]
+		local pocket_data = pockets_by_name[string.lower(text)]
 		if pocket_data == nil then
 			create_new_pocket(text, player_name)
 		end
@@ -401,7 +495,7 @@ local get_pocket_data = function(player_name, pocket_name)
 		minetest.chat_send_player(player_name, S("Please provide a name for the pocket dimension"))
 		return
 	end
-	local pocket_data = pockets_by_name[pocket_name]
+	local pocket_data = pockets_by_name[string.lower(pocket_name)]
 	if pocket_data == nil then
 		minetest.chat_send_player(player_name, S("Pocket dimension doesn't exist"))
 		return
@@ -498,7 +592,7 @@ minetest.register_chatcommand("pocket_delete", {
 			return
 		end
 		
-		pockets_by_name[param] = nil
+		pockets_by_name[string.lower(param)] = nil
 		pockets_by_hash[minetest.hash_node_position(pocket_data.minp)] = nil
 		minetest.chat_send_player(name, S("Deleted pocket dimension " .. param .. " at " .. minetest.pos_to_string(pocket_data.minp)))
 		minetest.log("action", "[pocket_dimensions] " .. name .. " deleted the pocket dimension " .. param .. " at " .. minetest.pos_to_string(pocket_data.minp))
@@ -523,7 +617,7 @@ minetest.register_chatcommand("pocket_undelete", {
 			return
 		end
 		local pocket_data = {name = pocket_name, minp = pocket_pos, destination = {x=mapblock_size/2, y=mapblock_size/2, z=mapblock_size/2}}
-		pockets_by_name[pocket_name] = pocket_data
+		pockets_by_name[string.lower(pocket_name)] = pocket_data
 		pockets_by_hash[minetest.hash_node_position(pocket_pos)] = pocket_data
 		minetest.chat_send_player(name, S("Undeleted pocket dimension."))
 		minetest.log("action", "[pocket_dimensions] " .. name .. " undeleted the pocket dimension " .. pocket_name .. " at " .. minetest.pos_to_string(pocket_pos))
@@ -537,7 +631,7 @@ minetest.register_chatcommand("pocket_list", {
 	description = S("List all pocket dimensions"),
 	func = function(player_name, param)
 		for name, pocket_data in pairs(pockets_by_name) do
-			minetest.chat_send_player(player_name, name .. ": owned by " .. tostring(pocket_data.owner) .. ", protected: " .. tostring(pocket_data.protected))
+			minetest.chat_send_player(player_name, pocket_data.name .. ": owned by " .. tostring(pocket_data.owner) .. ", protected: " .. tostring(pocket_data.protected))
 		end
 	end,
 })
