@@ -157,6 +157,7 @@ local perlin_params = {
 local perlin_noise = PerlinNoise(perlin_params)
 
 -----------------------------------------------------------------------
+-- Various border types
 
 local get_border_def = function(override)
 	local def = {
@@ -489,7 +490,6 @@ minetest.register_node("pocket_dimensions:portal", {
 -------------------------------------------------------------------------------
 -- Admin commands
 
-
 local get_pocket_data = function(player_name, pocket_name)
 	if pocket_name == "" or pocket_name == nil then
 		minetest.chat_send_player(player_name, S("Please provide a name for the pocket dimension"))
@@ -507,28 +507,6 @@ local get_pocket_data = function(player_name, pocket_name)
 	return pocket_data
 end
 
-minetest.register_chatcommand("pocket_teleport", {
-	params = "pocketname",
-	privs = {server=true},
-	description = S("Teleport to a pocket dimension, if it exists."),
-	func = function(name, param)
-		local pocket_data = get_pocket_data(name, param)
-		if pocket_data then
-			teleport_player_to_pocket(name, param)
-		end
-	end,
-})
-
-minetest.register_chatcommand("pocket_create", {
-	params = "pocketname",
-	privs = {server=true},
-	description = S("Create a pocket dimension."),
-	func = function(name, param)
-		create_new_pocket(param, name)
-	end,
-})
-
-
 local update_protected = function(pocket_data)
 	-- clear any existing protection
 	protected = protected_areas:get_areas_for_pos(pocket_data.minp)
@@ -540,47 +518,6 @@ local update_protected = function(pocket_data)
 		protected_areas:insert_area(pocket_data.minp, vector.add(pocket_data.minp, mapblock_size), pocket_data.owner)
 	end
 end
-
--- TODO doesn't handle pocket names with spaces
-minetest.register_chatcommand("pocket_set_owner", {
-	params = "pocketname [ownername]",
-	privs = {server=true},
-	description = S("Set the ownership of a pocket dimension."),
-	func = function(name, param)
-		param = param:split(" ")
-		if #param < 1 or #param > 2 then
-			minetest.chat_send_player(name, S("Incorrect parameter count"))
-			return
-		end
-		
-		local pocket_name = param[1]
-		local player_name = param[2] -- can be nil
-		local pocket_data = get_pocket_data(name, pocket_name)
-		if pocket_data == nil then
-			return
-		end
-		pocket_data.owner = player_name
-		update_protected(pocket_data)		
-		minetest.log("action", "[pocket_dimensions] " .. name .. " changed ownership of pocket dimension " .. pocket_name .. " from " .. tostring(pocket_data.owner).. " to " .. tostring(player_name))
-		save_data()
-	end,
-})
-
-minetest.register_chatcommand("pocket_protect", {
-	params = "pocketname",
-	privs = {server=true},
-	description = S("Toggles whether a pocket is protected (only has an effect if the pocket also has an owner)."),
-	func = function(name, param)
-		local pocket_data = get_pocket_data(name, param)
-		if pocket_data == nil then
-			return
-		end		
-		pocket_data.protected = not pocket_data.protected
-		update_protected(pocket_data)
-		minetest.log("action", "[pocket_dimensions] " .. name .. " set protection ownership of pocket dimension " .. param .. " to " .. tostring(pocket_data.protected))
-		save_data()
-	end,
-})
 
 minetest.register_chatcommand("pocket_delete", {
 	params = "pocketname",
@@ -625,16 +562,139 @@ minetest.register_chatcommand("pocket_undelete", {
 	end,
 })
 
-minetest.register_chatcommand("pocket_list", {
+-------------------------------------------------------------------------------------------------------
+
+local formspec_state = {}
+
+local get_admin_formspec = function(player_name)
+	formspec_state[player_name] = formspec_state[player_name] or {row_index=1}
+	local state = formspec_state[player_name]
+
+	local formspec = {
+		"formspec_version[2]"
+		.."size[8,10]"
+		.."button_exit[7.0,0.25;0.5,0.5;close;X]"
+	}
+	
+	formspec[#formspec+1] = "tablecolumns[text;text;text]table[0.5,1.0;7,6;pocket_table;"
+	
+	local i = 0
+	for name, dimension_data in pairs(pockets_by_name) do
+		i = i + 1
+		if i == state.row_index then
+			state.selected_data = dimension_data
+		end
+		local owner = dimension_data.owner or "<none>"
+		local protected = dimension_data.protected
+		formspec[#formspec+1] = minetest.formspec_escape(dimension_data.name)
+			..",".. minetest.formspec_escape(owner)
+			..","..tostring(protected)
+		formspec[#formspec+1] = ","
+	end
+	formspec[#formspec] = ";"..state.row_index.."]" -- don't use +1, this overwrites the last ","
+	
+	if state.selected_data then
+	formspec[#formspec+1] = "container[0.5,7.25]"
+		.."field[0.0,0.0;6,0.5;pocket_name;;" .. minetest.formspec_escape(state.selected_data.name) .."]"
+		.."button[0,0.5;3,0.5;rename;"..S("Rename").."]"
+		.."button[3.5,0.5;3,0.5;create;"..S("Create").."]"
+		.."button[0,1;3,0.5;teleport;"..S("Teleport To").."]"
+		.."button[3.5,1;3,0.5;protect;"..S("Toggle Protect").."]"
+		.."field[0.0,1.5;3,0.5;owner;;".. minetest.formspec_escape(state.selected_data.owner or "").."]"
+		.."button[3.5,1.5;3,0.5;set_owner;"..S("Set Owner").."]"
+		.."container_end[]"
+	end
+	return table.concat(formspec)
+end
+
+
+minetest.register_chatcommand("pocket_admin", {
 	params = "",
 	privs = {server=true},
-	description = S("List all pocket dimensions"),
+	description = S("Administrate pocket dimensions"),
 	func = function(player_name, param)
-		for name, pocket_data in pairs(pockets_by_name) do
-			minetest.chat_send_player(player_name, pocket_data.name .. ": owned by " .. tostring(pocket_data.owner) .. ", protected: " .. tostring(pocket_data.protected))
-		end
-	end,
+		minetest.show_formspec(player_name, "pocket_dimensions:admin", get_admin_formspec(player_name))
+	end
 })
+
+
+minetest.register_on_player_receive_fields(function(player, formname, fields)
+	if formname ~= "pocket_dimensions:admin" then
+		return
+	end
+
+	if fields.close then
+		return
+	end
+	
+	local player_name = player:get_player_name()
+	if not minetest.check_player_privs(player_name, {server = true}) then
+		minetest.chat_send_player(player_name, S("This command is for server admins only."))
+		return
+	end
+	
+	local refresh = false
+	local state = formspec_state[player_name]
+	local pocket_data = state.selected_data
+	if state == nil then
+		return
+	end
+
+	if fields.pocket_table then
+		local table_event = minetest.explode_table_event(fields.pocket_table)
+		if table_event.type == "CHG" then
+			state.row_index = table_event.row
+			refresh = true
+		end
+	end
+
+	if fields.rename and fields.pocket_name ~= pocket_data.name then
+		if pockets_by_name[string.lower(fields.pocket_name)] then
+			minetest.chat_send_player(player_name, S("A pocket dimension with that name already exists"))
+		else
+			minetest.chat_send_all("renaming")
+			--save_data()
+			refresh=true
+		end
+	end
+	
+	if fields.create then
+		if create_new_pocket(fields.pocket_name, player_name) then
+			refresh = true
+		end
+	end	
+	
+	if fields.protect then
+		pocket_data.protected = not pocket_data.protected
+		update_protected(pocket_data)
+		minetest.log("action", "[pocket_dimensions] " .. player_name .. " set protection ownership of pocket dimension " .. pocket_data.name .. " to " .. tostring(pocket_data.protected))
+		save_data()
+		refresh = true
+	end
+	
+	if fields.teleport and pocket_data then
+		teleport_player_to_pocket(player_name, state.selected_data.name)
+	end
+	
+	if fields.set_owner and pocket_data.owner ~= fields.owner then
+		if fields.owner == "" then
+			pocket_data.owner = nil
+		else
+			pocket_data.owner = fields.owner
+		end
+		save_data()
+		refresh = true
+	end
+	
+	if refresh then
+		minetest.show_formspec(player_name, "pocket_dimensions:admin", get_admin_formspec(player_name))
+	end
+end)
+
+
+
+-------------------------------------------------------------------------------------------------------
+
 
 if personal_pockets_enabled then
 
@@ -663,10 +723,10 @@ if personal_pockets_enabled then
 			end
 	
 			if param == nil or param == "" then
-				minetest.chat_send_player(player_name, S("The first time you teleport to your personal pocket, you need to give it a name. Use /pocket_personal pocketname"))
+				minetest.chat_send_player(player_name, S("You need to give your personal pocket dimension a name. Use /pocket_personal pocketname"))
 				return
 			end
-			
+
 			pocket_data = create_new_pocket(param, player_name, player_name)
 			if pocket_data then
 				personal_pockets[player_name] = pocket_data
