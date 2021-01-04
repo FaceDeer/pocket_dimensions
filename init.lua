@@ -3,16 +3,15 @@ local S = minetest.get_translator(minetest.get_current_modname())
 local MP = minetest.get_modpath(minetest.get_current_modname())
 dofile(MP.."/voxelarea_iterator.lua")
 
+--The world is a cube of side length 61840. Coordinates go from -30912 to 30927 in any direction.
+--The side length is a multiple of 80
+--773 * 80 = 61840
+-- so there are 773 * 773 = 597529 chunk in a horizontal layer. Should be plenty for distributing these things in.
 
 local mapgen_chunksize = tonumber(minetest.get_mapgen_setting("chunksize"))
 local mapblock_size = mapgen_chunksize * 16 -- should be 80 in almost all cases, but avoiding hardcoding it for extensibility
 local block_grid_dimension = math.floor(61840 / mapblock_size) -- should be 773
-local max_pockets = block_grid_dimension * block_grid_dimension
-
---The world is a cube of side length 61840. Coordinates go from −30912 to 30927 in any direction.
---The side length is a multiple of 80, an important number in Minetest.
---773 * 80 = 61840
--- so there are 773 * 773 = 597529 chunk in a horizontal layer
+local min_coordinate = -30912
 
 local layer_elevation = tonumber(minetest.settings:get("pocket_dimensions_altitude")) or 30000
 layer_elevation = math.floor(layer_elevation / mapblock_size) * mapblock_size - 32 -- round to mapblock boundary
@@ -35,6 +34,15 @@ if default_modpath then
 	c_water = minetest.get_content_id("default:water_source")
 	c_sand = minetest.get_content_id("default:sand")
 end
+local mcl_core_modpath = minetest.get_modpath("mcl_core")
+if mcl_core_modpath then
+	c_dirt = minetest.get_content_id("mcl_core:dirt")
+	c_dirt_with_grass = minetest.get_content_id("mcl_core:dirt_with_grass")
+	c_stone = minetest.get_content_id("mcl_core:stone")
+	c_water = minetest.get_content_id("mcl_core:water_source")
+	c_sand = minetest.get_content_id("mcl_core:sand")
+end
+
 
 -- pocket data tables have the following properties:
 -- pending = true -- pocket is being initialized, don't teleport there just yet
@@ -114,12 +122,6 @@ end
 load_data()
 ----------------------------------------------------------------------------------------
 
-local index_to_minp = function(index)
-	assert(index >=0 and index < max_pockets, "index out of bounds")
-	local x = math.floor(index / block_grid_dimension) * mapblock_size - 30912
-	local z = (index % block_grid_dimension) * mapblock_size - 30912
-	return {x=x, y=layer_elevation, z=z}
-end
 
 -- check if players have got out of pocket dimensions by other means and clear their origin locations
 local since_last_check = 0
@@ -141,31 +143,13 @@ minetest.register_globalstep(function(dtime)
 	end
 end)
 
----------------------------------------------------------------
--- For simple terrain inside new pocket dimensions
+-----------------------------------------------------------------
+-- Border material
 
-local spread_magnitude = mapblock_size
-local scale_magnitude = 5
-
-local perlin_params = {
-    offset = 0,
-    scale = scale_magnitude,
-    spread = {x = spread_magnitude, y = spread_magnitude, z = spread_magnitude},
-    seed = 577,
-    octaves = 5,
-    persist = 0.63,
-    lacunarity = 2.0,
-    --flags = "defaults",
-}
-
-local perlin_noise = PerlinNoise(perlin_params)
-
------------------------------------------------------------------------
--- Various border types
 
 local get_border_def = function(override)
 	local def = {
-		description = S("The boundary of a pocket dimension"),
+		description = S("Boundary of a pocket dimension"),
 		groups = {not_in_creative_inventory = 1},
 		drawtype = "normal",  -- See "Node drawtypes"
 		light_source = 4,
@@ -180,7 +164,7 @@ local get_border_def = function(override)
 		--sounds = 
 		can_dig = function(pos, player) return false end,
 		on_blast = function(pos, intensity) return false end,
-		on_rightclick = function(pos, node, clicker, itemstack, pointed_thing)
+        on_punch = function(pos, node, clicker, pointed_thing)
 			local clicker_pos = clicker:get_pos()
 			if vector.distance(pos, clicker_pos) > 2 then
 				return
@@ -209,100 +193,6 @@ local get_border_def = function(override)
 	return def
 end
 
-
-minetest.register_node("pocket_dimensions:border_orange", get_border_def({tiles = {{name="pocket_dimensions_white.png", color="#ff8c00"}}}))
-minetest.register_node("pocket_dimensions:border_black", get_border_def({tiles = {{name="pocket_dimensions_white.png", color="#000000"}}}))
-
-local c_border_orange = minetest.get_content_id("pocket_dimensions:border_orange")
-local c_border_black = minetest.get_content_id("pocket_dimensions:border_black")
-
-local get_holodeck_border = function(x,y,z)
-	x = x + 4
-	y = y + 4
-	z = z + 4
-	if x%8 == 0 or y%8 == 0 or z%8 == 0 then
-		return c_border_orange
-	end
-	return c_border_black
-end
-
--- taken from lua_api.txt
---local default_sky_colors = {day_sky = "#8cbafa", day_horizon="#9bc1f0", dawn_sky="#b4bafa", dawn_horizon="#bac1f0", night_sky="#006aff", night_horizon="#4090ff"}
-
--- From midnight to midday
-local sky_colors = {
-	"#010103",
-	"#010a18",
-	"#01183a",
-	"#002b69",
-	"#01347b",
-	"#304872",
-	"#887061",
-	"#886f61",
-	"#c38a56",
-	"#c1926a",
-	"#a9a4ad",
-	"#a2abc1",
-	"#9ab0d2",
-	"#95b4e2",
-	"#91b7ef",
-	"#8ebaf7",
-	"#8cbbfa",
-}
-
-for i, color in ipairs(sky_colors) do
-	minetest.register_node("pocket_dimensions:border_sky_" .. i, get_border_def(
-	{
-		tiles = {{name="pocket_dimensions_white.png", color=color}},
-		-- NOTE! Only set the timer running on the node at minp. Otherwise chaos and destruction.
-		on_timer = function(pos, elapsed)
-			local timeofday = minetest.get_timeofday()
-			--  0 for midnight, 0.5 for midday
-			if timeofday < 0.5 then
-				timeofday = math.ceil(timeofday * 16)
-			else
-				timeofday = math.ceil(math.abs(1 - timeofday) * 16)
-			end
-			if timeofday ~= i then
-				local c_new_sky = minetest.get_content_id("pocket_dimensions:border_sky_" .. timeofday)
-				local maxp = vector.add(pos, mapblock_size)
-				local vm = minetest.get_voxel_manip(pos, maxp)
-				local emin, emax = vm:get_emerged_area()
-				local data = vm:get_data()
-				local area = VoxelArea:new{MinEdge = emin, MaxEdge = emax}
-				for vi, x, y, z in area:iterp_xyz(pos, maxp) do
-					if x == pos.x or x == maxp.x or y == pos.y or y == maxp.y or z == pos.z or z == maxp.z then
-						data[vi] = c_new_sky
-					end
-				end
-				vm:set_data(data)
-				vm:write_to_map()
-			end
-			minetest.get_node_timer(pos):start(30)
-		end,
-	}))
-end
-
-local c_border_sky = minetest.get_content_id("pocket_dimensions:border_sky_1")
-local get_sky_border = function(x,y,z)
-	return c_border_sky
-end
-
-
-minetest.register_node("pocket_dimensions:border_static", get_border_def(
-	{tiles = {{name="pocket_dimensions_static.png", animation= {
-			type = "vertical_frames",
-			aspect_w = 16,
-			aspect_h = 16,
-			length = 1.0,
-		},
-		color="#888888"}}})
-)
-local c_border_static = minetest.get_content_id("pocket_dimensions:border_static")
-local get_static_border= function(x,y,z)
-	return c_border_static
-end
-
 minetest.register_node("pocket_dimensions:border_glass", get_border_def(
 	{
 		use_texture_alpha = true,
@@ -314,20 +204,38 @@ minetest.register_node("pocket_dimensions:border_glass", get_border_def(
 		}},
 	}
 ))
-local c_border_glass = minetest.get_content_id("pocket_dimensions:border_glass")
-local get_glass_border = function(x,y,z)
-	return c_border_glass
-end
+
+local c_border = minetest.get_content_id("pocket_dimensions:border_glass")
+
+---------------------------------------------------------------
+-- For generating simple terrain inside new pocket dimensions
+
+local spread_magnitude = mapblock_size
+local scale_magnitude = 5
+
+local perlin_params = {
+    offset = 0,
+    scale = scale_magnitude,
+    spread = {x = spread_magnitude, y = spread_magnitude, z = spread_magnitude},
+    seed = 577,
+    octaves = 5,
+    persist = 0.63,
+    lacunarity = 2.0,
+}
+
+local perlin_noise = PerlinNoise(perlin_params)
 
 --------------------------------------------------------------------------------------------------
 
--- TODO don't know why minetest.get_perlin_map isn't working here
+-- TODO don't know why minetest.get_perlin_map isn't working here, but don't really care
+-- pocket dimensions are distributed randomly so doesn't really matter whether their terrain
+-- is world-seeded. Nobody will ever notice.
 local terrain_map = PerlinNoiseMap(
 	perlin_params,
 	{x=mapblock_size, y=mapblock_size, z=mapblock_size}
 )
 
--- Once the map block for the new pocket dimension is loaded, this initializes its node layout and finds a spot for arrivals to teleport to
+-- Once the map block for the new pocket dimension is loaded, this initializes its node layout and finds a default spot for arrivals to teleport to
 local emerge_callback = function(blockpos, action, calls_remaining, pocket_data)
 	if pocket_data.pending ~= true then
 		return
@@ -345,11 +253,10 @@ local emerge_callback = function(blockpos, action, calls_remaining, pocket_data)
 	-- Default is down on the floor of the border walls, in case default mod isn't installed and no landscape is created
 	local middlep = {x=minp.x+math.floor(mapblock_size/2), y=minp.y+2, z=minp.z+math.floor(mapblock_size/2)}
 	
-	minetest.get_node_timer(minp):start(5) -- sets the sky updater node running
 	for vi, x, y, z in area:iterp_xyz(minp, maxp) do
 		if x == minp.x or x == maxp.x or y == minp.y or y == maxp.y or z == minp.z or z == maxp.z then
-			data[vi] = get_glass_border(x,y,z)
-		elseif default_modpath then
+			data[vi] = c_border
+		elseif default_modpath or mcl_core_modpath then
 			local terrain_level = math.floor(terrain_values[x-minp.x+1][z-minp.z+1] + surface)
 			local below_water = y < surface
 			if y == terrain_level then
@@ -397,7 +304,6 @@ local create_new_pocket = function(pocket_name, player_name, set_as_owner)
 		return
 	end
 
-	
 	if pockets_by_name[string.lower(pocket_name)] then
 		if player_name then
 			minetest.chat_send_player(player_name, S("The name @1 is already in use.", pocket_name))
@@ -407,8 +313,9 @@ local create_new_pocket = function(pocket_name, player_name, set_as_owner)
 
 	local count = 0
 	while count < 100 do
-		local index = math.random(0, max_pockets)
-		local pos = index_to_minp(index)
+		local x = math.random(0, block_grid_dimension) * mapblock_size + min_coordinate
+		local z = math.random(0, block_grid_dimension) * mapblock_size + min_coordinate
+		local pos = {x=x, y=layer_elevation, z=z}
 		local hash = minetest.hash_node_position(pos)
 		if pockets_by_hash[hash] == nil and pockets_deleted[hash] == nil then
 			local pocket_data = {pending=true, minp=pos, name=pocket_name}
@@ -710,9 +617,9 @@ minetest.register_on_player_receive_fields(function(player, formname, fields)
 end)
 
 -------------------------------------------------------------------------------------------------------
+-- Player commands
 
 if personal_pockets_enabled then
-
 	function teleport_to_pending(pocket_name, player_name, count)
 		local teleported = teleport_player_to_pocket(player_name, pocket_name)
 		if teleported then
@@ -722,7 +629,7 @@ if personal_pockets_enabled then
 			minetest.after(1, teleport_to_pending, pocket_name, player_name, count + 1)
 			return
 		end
-		minetest.chat_send_player(player_name, S("Teleport to personal pocket dimension failed after @1 tries.", count))
+		minetest.chat_send_player(player_name, S("Teleport to personal pocket dimension @1 failed after @2 tries.", pocket_name, count))
 	end
 
 	minetest.register_chatcommand("pocket_personal", {
@@ -738,7 +645,7 @@ if personal_pockets_enabled then
 			end
 	
 			if param == nil or param == "" then
-				minetest.chat_send_player(player_name, S("You need to give your personal pocket dimension a name. Use /pocket_personal pocketname"))
+				minetest.chat_send_player(player_name, S("You need to give your personal pocket dimension a name the first time you visit it. Use /pocket_personal pocketname. You can rename it later with /pocket_rename"))
 				return
 			end
 
@@ -750,3 +657,89 @@ if personal_pockets_enabled then
 		end,
 	})
 end
+
+minetest.register_chatcommand("pocket_entry", {
+	params = "",
+--	privs = {}, -- TODO a new privilege here?
+	description = S("Set the entry point of the pocket dimension you're in to where you're standing."),
+	func = function(player_name, param)
+		local pos = minetest.get_player_by_name(player_name):get_pos()
+		-- Find the pocket the player's in
+		for hash, pocket_data in pairs(pockets_by_hash) do
+			local pos_diff = vector.subtract(pos, pocket_data.minp)
+			if pos_diff.y >=0 and pos_diff.y <= mapblock_size and -- check y first to eliminate possibility player's not in a pocket dimension at all
+				pos_diff.x >=0 and pos_diff.x <= mapblock_size and
+				pos_diff.z >=0 and pos_diff.z <= mapblock_size then
+				
+				if player_name == pocket_data.owner or minetest.check_player_privs(player_name, "server") then
+					pocket_data.destination = vector.round(pos_diff)
+					save_data()
+					minetest.chat_send_player(player_name, S("The entry point for pocket dimension @1 has been updated", pocket_data.name))
+				else
+					minetest.chat_send_player(player_name, S("You don't have permission to change the entry point of pocket dimension @1.", pocket_data.name))
+				end				
+				return
+			end
+		end
+		minetest.chat_send_player(player_name, S("You're not inside a pocket dimension right now."))
+	end,
+})
+
+minetest.register_chatcommand("pocket_rename", {
+	params = "pocketname",
+--	privs = {}, -- TODO a new privilege here?
+	description = S("Renames the pocket dimension you're inside."),
+	func = function(player_name, param)
+		if param == nil or param == "" then
+			minetest.chat_send_player(player_name, S("Please provide a name as a parameter to this command."))
+			return
+		end
+		local pos = minetest.get_player_by_name(player_name):get_pos()
+		-- Find the pocket the player's in
+		for hash, pocket_data in pairs(pockets_by_hash) do
+			local pos_diff = vector.subtract(pos, pocket_data.minp)
+			if pos_diff.y >=0 and pos_diff.y <= mapblock_size and -- check y first to eliminate possibility player's not in a pocket dimension at all
+				pos_diff.x >=0 and pos_diff.x <= mapblock_size and
+				pos_diff.z >=0 and pos_diff.z <= mapblock_size then
+				
+				if player_name == pocket_data.owner or minetest.check_player_privs(player_name, "server") then
+					if pockets_by_name[string.lower(param)] then
+						minetest.chat_send_player(player_name, S("A pocket dimension with that name already exists"))
+					else
+						minetest.chat_send_player(player_name, S("The name of pocket dimension @1 has been changed to \"@2\".", pocket_data.name, param))
+						pockets_by_name[string.lower(pocket_data.name)] = nil
+						pockets_by_name[string.lower(param)] = pocket_data
+						pocket_data.name = param
+						save_data()
+					end
+				else
+					minetest.chat_send_player(player_name, S("You don't have permission to change the name of pocket dimension @1.", pocket_data.name))
+				end
+				return
+			end
+		end
+		minetest.chat_send_player(player_name, S("You're not inside a pocket dimension right now."))
+	end,
+})
+
+
+minetest.register_chatcommand("pocket_name", {
+	params = "",
+--	privs = {}, -- TODO a new privilege here?
+	description = S("Finds the name of the pocket dimension you're inside right now."),
+	func = function(player_name, param)
+		local pos = minetest.get_player_by_name(player_name):get_pos()
+		-- Find the pocket the player's in
+		for hash, pocket_data in pairs(pockets_by_hash) do
+			local pos_diff = vector.subtract(pos, pocket_data.minp)
+			if pos_diff.y >=0 and pos_diff.y <= mapblock_size and -- check y first to eliminate possibility player's not in a pocket dimension at all
+				pos_diff.x >=0 and pos_diff.x <= mapblock_size and
+				pos_diff.z >=0 and pos_diff.z <= mapblock_size then
+				
+				minetest.chat_send_player(player_name, S("You're inside pocket dimension \"@1\"", pocket_data.name))
+				return
+			end
+		end
+		minetest.chat_send_player(player_name, S("You're not inside a pocket dimension right now."))
+	end,
+})

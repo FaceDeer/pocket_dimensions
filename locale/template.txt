@@ -4,7 +4,7 @@
 
 ### init.lua ###
 
-The boundary of a pocket dimension=
+Boundary of a pocket dimension=
 Please provide a name for the pocket dimension=
 The name @1 is already in use.=
 Pocket dimension @1 created=
@@ -29,6 +29,16 @@ A pocket dimension with that name already exists=
 Cannot undelete, a pocket dimension with that name already exists=
 Undeleted pocket dimension @1 at @2. Note that this doesn't affect the map, just moves this pocket dimension out of regular access and into the deleted list.=
 Deleted pocket dimension @1 at @2. Note that this doesn't affect the map, just moves this pocket dimension out of regular access and into the deleted list.=
-Teleport to personal pocket dimension failed after @1 tries.=
+Teleport to personal pocket dimension @1 failed after @2 tries.=
 Teleport to your personal pocket dimension=
-You need to give your personal pocket dimension a name. Use /pocket_personal pocketname=
+You need to give your personal pocket dimension a name the first time you visit it. Use /pocket_personal pocketname. You can rename it later with /pocket_rename=
+Set the entry point of the pocket dimension you're in to where you're standing.=
+The entry point for pocket dimension @1 has been updated=
+You don't have permission to change the entry point of pocket dimension @1.=
+You're not inside a pocket dimension right now.=
+Renames the pocket dimension you're inside.=
+Please provide a name as a parameter to this command.=
+The name of pocket dimension @1 has been changed to "@2".=
+You don't have permission to change the name of pocket dimension @1.=
+Finds the name of the pocket dimension you're inside right now.=
+You're inside pocket dimension "@1"=
