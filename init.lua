@@ -106,7 +106,7 @@ local load_data = function()
 			pocket_data.minp = minetest.get_position_from_hash(hash)
 		end
 		pockets_by_name[string.lower(pocket_data.name)] = pocket_data		
-		if pocket_data.protected and pocket_data.owner then
+		if pocket_data.protected then
 			protected_areas:insert_area(pocket_data.minp, vector.add(pocket_data.minp, mapblock_size), pocket_data.owner)
 		end
 	end
@@ -536,7 +536,7 @@ local update_protected = function(pocket_data)
 		protected_areas:remove_area(id)
 	end
 	-- add protection if warranted
-	if pocket_data.protected and pocket_data.owner then
+	if pocket_data.protected then
 		protected_areas:insert_area(pocket_data.minp, vector.add(pocket_data.minp, mapblock_size), pocket_data.owner)
 	end
 end
@@ -555,7 +555,10 @@ local get_admin_formspec = function(player_name)
 	formspec[#formspec+1] = "tablecolumns[text,tooltip="..S("Name")
 		..";text,tooltip="..S("Owner")
 		..";text,tooltip="..S("Protected")
-		.."]table[0.5,1.0;7,5.75;pocket_table;"
+	if personal_pockets then
+		formspec[#formspec+1] = ";text,tooltip="..S("Personal")
+	end
+	formspec[#formspec+1] = "]table[0.5,1.0;7,5.75;pocket_table;"
 	
 	local table_to_use = pockets_by_name
 	local delete_label = S("Delete")
@@ -573,10 +576,12 @@ local get_admin_formspec = function(player_name)
 			state.selected_data = dimension_data
 		end
 		local owner = dimension_data.owner or "<none>"
-		local protected = dimension_data.protected
 		formspec[#formspec+1] = minetest.formspec_escape(dimension_data.name)
 			..",".. minetest.formspec_escape(owner)
-			..","..tostring(protected)
+			..","..tostring(dimension_data.protected or "false")
+		if personal_pockets then
+			formspec[#formspec+1] = ","..tostring(dimension_data.personal)
+		end
 		formspec[#formspec+1] = ","
 	end
 	formspec[#formspec] = ";"..state.row_index.."]" -- don't use +1, this overwrites the last ","
@@ -681,8 +686,8 @@ minetest.register_on_player_receive_fields(function(player, formname, fields)
 			pockets_by_name[string.lower(pocket_data.name)] = nil
 			pockets_by_hash[pocket_hash] = nil
 			if personal_pockets then
-				for name, hash in pairs(personal_pockets) do
-					if hash == pocket_hash then
+				for name, personal_pocket_data in pairs(personal_pockets) do
+					if pocket_data == personal_pocket_data then
 						-- we're deleting a personal pocket, remove its record
 						personal_pockets[name] = nil
 						break
@@ -757,7 +762,7 @@ if personal_pockets_enabled then
 				return
 			end
 
-			pocket_data = create_new_pocket(param, player_name, {protected=player_name, personal=player_name, type="grassy"})
+			pocket_data = create_new_pocket(param, player_name, {protected=true, owner=player_name, personal=player_name, type="grassy"})
 			if pocket_data then
 				personal_pockets[player_name] = pocket_data
 				teleport_to_pending(param, player_name, 1)
