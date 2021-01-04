@@ -42,6 +42,7 @@ end
 -- name = a name for the pocket.
 -- owner = if set, this pocket is "owned" by this particular player.
 -- protected = if true, this pocket is protected and only the owner can modify its contents
+-- minp = the lower corner of the pocket's region
 
 local pockets_by_hash = {}
 local pockets_by_name = {}
@@ -442,6 +443,25 @@ end
 
 -------------------------------------------------------------------------------
 
+local portal_formspec_state = {}
+
+local get_select_formspec = function(player_name)
+	local formspec = {
+		"formspec_version[2]"
+		.."size[8,2]"
+		.."button_exit[7.0,0.25;0.5,0.5;close;X]"
+		.."label[0.5,0.6;"..S("Link to pocket dimension:").."]dropdown[1,1;4,0.5;pocket_select;"
+	}
+	local names = {}
+	for name, def in pairs(pockets_by_name) do
+		table.insert(names, minetest.formspec_escape(def.name))
+	end
+	table.sort(names)
+	portal_formspec_state[player_name].names = names
+	formspec[#formspec+1] = table.concat(names, ",") .. ";]"
+	return table.concat(formspec)
+end
+
 minetest.register_node("pocket_dimensions:portal", {
     description = S("Pocket Dimension Access"),
     groups = {oddly_breakable_by_hand = 1},
@@ -451,41 +471,53 @@ minetest.register_node("pocket_dimensions:portal", {
 	paramtype2="facedir",
 	is_ground_content=false,
 	node_box={type="regular"},
-	on_construct = function(pos)
-		local meta = minetest.get_meta(pos)
-		meta:set_string("formspec", "field[text;;${text}]")
-	end,
-	on_receive_fields = function(pos, formname, fields, sender)
-		local player_name = sender:get_player_name()
-		if minetest.is_protected(pos, player_name) then
-			minetest.record_protection_violation(pos, player_name)
-			return
-		end
-		local text = fields.text
-		if not text then
-			return
-		end
-
-		local pocket_data = pockets_by_name[string.lower(text)]
-		if pocket_data == nil then
-			create_new_pocket(text, player_name)
-		end
-		
-		local meta = minetest.get_meta(pos)
-		meta:set_string("pocket_name", text)
-		meta:set_string("formspec", "")
-		meta:set_string("infotext", S("Teleporter to pocket dimension\n@1", text))
-	end,
 
 	on_rightclick = function(pos, node, clicker, itemstack, pointed_thing)
+		local player_name = clicker:get_player_name()
 		local meta = minetest.get_meta(pos)
-		local pocket_name = meta:get_string("pocket_name")
-		if pocket_name then
-			teleport_player_to_pocket(clicker:get_player_name(), pocket_name)
-		end	
+		local pocket_dest = minetest.string_to_pos(meta:get_string("pocket_dest"))
+		if pocket_dest then
+			local pocket_data = pockets_by_hash[minetest.hash_node_position(pocket_dest)]
+			if pocket_data then
+				teleport_player_to_pocket(player_name, pocket_data.name)
+				return
+			end
+		end
+		portal_formspec_state[player_name] = {pos = pos}
+		minetest.show_formspec(player_name, "pocket_dimensions:portal_select", get_select_formspec(player_name))
 	end,
 })
 
+minetest.register_on_player_receive_fields(function(player, formname, fields)
+	if formname ~= "pocket_dimensions:portal_select" then
+		return
+	end
+
+	if fields.close then
+		return
+	end
+	
+	local player_name = player:get_player_name()
+	local state = portal_formspec_state[player_name]
+	if state == nil then
+		return
+	end
+	
+	if fields.pocket_select then
+		for _, name in pairs(state.names) do
+			if fields.pocket_select == name then
+				local pocket_data = pockets_by_name[string.lower(name)] -- TODO: minetest.formspec_escape may screw up this lookup, do something different
+				if pocket_data then
+					local meta = minetest.get_meta(state.pos)
+					meta:set_string("pocket_dest", minetest.pos_to_string(pocket_data.minp))
+					meta:set_string("infotext", S("Portal to @1", name))
+				end
+				minetest.close_formspec(player_name, "pocket_dimensions:portal_select")
+				return
+			end
+		end
+	end
+end)
 
 -------------------------------------------------------------------------------
 -- Admin commands
@@ -576,7 +608,10 @@ local get_admin_formspec = function(player_name)
 		.."button_exit[7.0,0.25;0.5,0.5;close;X]"
 	}
 	
-	formspec[#formspec+1] = "tablecolumns[text;text;text]table[0.5,1.0;7,6;pocket_table;"
+	formspec[#formspec+1] = "tablecolumns[text,tooltip="..S("Name")
+		..";text,tooltip="..S("Owner")
+		..";text,tooltip="..S("Protected")
+		.."]table[0.5,1.0;7,6;pocket_table;"
 	
 	local i = 0
 	for name, dimension_data in pairs(pockets_by_name) do
@@ -607,7 +642,6 @@ local get_admin_formspec = function(player_name)
 	return table.concat(formspec)
 end
 
-
 minetest.register_chatcommand("pocket_admin", {
 	params = "",
 	privs = {server=true},
@@ -616,7 +650,6 @@ minetest.register_chatcommand("pocket_admin", {
 		minetest.show_formspec(player_name, "pocket_dimensions:admin", get_admin_formspec(player_name))
 	end
 })
-
 
 minetest.register_on_player_receive_fields(function(player, formname, fields)
 	if formname ~= "pocket_dimensions:admin" then
@@ -652,8 +685,10 @@ minetest.register_on_player_receive_fields(function(player, formname, fields)
 		if pockets_by_name[string.lower(fields.pocket_name)] then
 			minetest.chat_send_player(player_name, S("A pocket dimension with that name already exists"))
 		else
-			minetest.chat_send_all("renaming")
-			--save_data()
+			pockets_by_name[string.lower(fields.pocket_name)] = pocket_data
+			pockets_by_name[string.lower(pocket_data.name)] = nil
+			pocket_data.name = fields.pocket_name
+			save_data()
 			refresh=true
 		end
 	end
