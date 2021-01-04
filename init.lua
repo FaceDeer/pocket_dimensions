@@ -541,31 +541,6 @@ local update_protected = function(pocket_data)
 	end
 end
 
-minetest.register_chatcommand("pocket_undelete", {
-	params = "pocketname (x,y,z)",
-	privs = {server = true},
-	description = S("Restore a deleted pocket dimension. Be certain to get the coordinates exactly right, no checking is done to ensure the map is correctly configured."),
-	func = function(name, param)
-		local param = param:split(" ")
-		if #param ~= 2 then
-			minetest.chat_send_player(name, S("Incorrect number of parameters"))
-			return
-		end
-		local pocket_name = param[1]
-		local pocket_pos = minetest.string_to_pos(param[2])
-		if pocket_name == nil or pocket_pos == nil then
-			minetest.chat_send_player(name, S("Unable to parse parameters"))
-			return
-		end
-		local pocket_data = {name = pocket_name, minp = pocket_pos, destination = {x=mapblock_size/2, y=mapblock_size/2, z=mapblock_size/2}}
-		pockets_by_name[string.lower(pocket_name)] = pocket_data
-		pockets_by_hash[minetest.hash_node_position(pocket_pos)] = pocket_data
-		minetest.chat_send_player(name, S("Undeleted pocket dimension."))
-		minetest.log("action", "[pocket_dimensions] " .. name .. " undeleted the pocket dimension " .. pocket_name .. " at " .. minetest.pos_to_string(pocket_pos))
-		save_data()
-	end,
-})
-
 local formspec_state = {}
 local get_admin_formspec = function(player_name)
 	formspec_state[player_name] = formspec_state[player_name] or {row_index=1}
@@ -580,10 +555,19 @@ local get_admin_formspec = function(player_name)
 	formspec[#formspec+1] = "tablecolumns[text,tooltip="..S("Name")
 		..";text,tooltip="..S("Owner")
 		..";text,tooltip="..S("Protected")
-		.."]table[0.5,1.0;7,6;pocket_table;"
+		.."]table[0.5,1.0;7,5.75;pocket_table;"
+	
+	local table_to_use = pockets_by_name
+	local delete_label = S("Delete")
+	local undelete_toggle = "false"
+	if state.undelete == "true" then
+		table_to_use = pockets_deleted
+		delete_label = S("Undelete")
+		undelete_toggle = "true"
+	end
 	
 	local i = 0
-	for name, dimension_data in pairs(pockets_by_name) do
+	for _, dimension_data in pairs(table_to_use) do
 		i = i + 1
 		if i == state.row_index then
 			state.selected_data = dimension_data
@@ -599,15 +583,16 @@ local get_admin_formspec = function(player_name)
 	
 	local selected_data = state.selected_data or {}
 	
-	formspec[#formspec+1] = "container[0.5,7.25]"
-		.."field[0.0,0.0;6,0.5;pocket_name;;" .. minetest.formspec_escape(selected_data.name or "") .."]"
+	formspec[#formspec+1] = "container[0.5,7]"
+		.."field[0.0,0.0;6.5,0.5;pocket_name;;" .. minetest.formspec_escape(selected_data.name or "") .."]"
 		.."button[0,0.5;3,0.5;rename;"..S("Rename").."]"
 		.."button[3.5,0.5;3,0.5;create;"..S("Create").."]"
 		.."button[0,1;3,0.5;teleport;"..S("Teleport To").."]"
 		.."button[3.5,1;3,0.5;protect;"..S("Toggle Protect").."]"
-		.."button[0,1.5;3,0.5;delete;"..S("Delete").."]"		
+		.."button[0,1.5;3,0.5;delete;"..delete_label.."]"		
 		.."field[0.0,2;3,0.5;owner;;".. minetest.formspec_escape(selected_data.owner or "").."]"
 		.."button[3.5,2;3,0.5;set_owner;"..S("Set Owner").."]"
+		.."checkbox[0,2.75;undelete_toggle;"..S("Show deleted")..";"..undelete_toggle.."]"
 		.."container_end[]"
 	return table.concat(formspec)
 end
@@ -663,6 +648,11 @@ minetest.register_on_player_receive_fields(function(player, formname, fields)
 		end
 	end
 	
+	if fields.undelete_toggle then
+		state.undelete = fields.undelete_toggle
+		refresh = true
+	end
+	
 	if fields.create then
 		if create_new_pocket(fields.pocket_name, player_name) then
 			refresh = true
@@ -670,11 +660,23 @@ minetest.register_on_player_receive_fields(function(player, formname, fields)
 	end
 	
 	if fields.delete then
-		pockets_deleted[minetest.hash_node_position(pocket_data.minp)] = pocket_data
-		pockets_by_name[string.lower(pocket_data.name)] = nil
-		pockets_by_hash[minetest.hash_node_position(pocket_data.minp)] = nil
-		minetest.chat_send_player(player_name, S("Deleted pocket dimension @1 at @2. Note that this doesn't affect the map, just moves this pocket dimension out of regular access and into the deleted list.", pocket_data.name, minetest.pos_to_string(pocket_data.minp)))
-		minetest.log("action", "[pocket_dimensions] " .. player_name .. " deleted the pocket dimension " .. pocket_data.name .. " at " .. minetest.pos_to_string(pocket_data.minp))
+		if state.undelete == "true" then
+			if pockets_by_name[string.lower(pocket_data.name)] then
+				minetest.chat_send_player(player_name, S("Cannot undelete, a pocket dimension with that name already exists"))
+			else
+				pockets_deleted[minetest.hash_node_position(pocket_data.minp)] = nil
+				pockets_by_name[string.lower(pocket_data.name)] = pocket_data
+				pockets_by_hash[minetest.hash_node_position(pocket_data.minp)] = pocket_data
+				minetest.chat_send_player(player_name, S("Undeleted pocket dimension @1 at @2. Note that this doesn't affect the map, just moves this pocket dimension out of regular access and into the deleted list.", pocket_data.name, minetest.pos_to_string(pocket_data.minp)))
+				minetest.log("action", "[pocket_dimensions] " .. player_name .. " undeleted the pocket dimension " .. pocket_data.name .. " at " .. minetest.pos_to_string(pocket_data.minp))
+			end				
+		else	
+			pockets_deleted[minetest.hash_node_position(pocket_data.minp)] = pocket_data
+			pockets_by_name[string.lower(pocket_data.name)] = nil
+			pockets_by_hash[minetest.hash_node_position(pocket_data.minp)] = nil
+			minetest.chat_send_player(player_name, S("Deleted pocket dimension @1 at @2. Note that this doesn't affect the map, just moves this pocket dimension out of regular access and into the deleted list.", pocket_data.name, minetest.pos_to_string(pocket_data.minp)))
+			minetest.log("action", "[pocket_dimensions] " .. player_name .. " deleted the pocket dimension " .. pocket_data.name .. " at " .. minetest.pos_to_string(pocket_data.minp))
+		end
 		save_data()
 		state.row_index = 1
 		refresh = true
