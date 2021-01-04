@@ -122,7 +122,6 @@ end
 load_data()
 ----------------------------------------------------------------------------------------
 
-
 -- check if players have got out of pocket dimensions by other means and clear their origin locations
 local since_last_check = 0
 minetest.register_globalstep(function(dtime)
@@ -143,9 +142,42 @@ minetest.register_globalstep(function(dtime)
 	end
 end)
 
------------------------------------------------------------------
--- Border material
+------------------------------------------------------------------------------------------
+-- Teleport effects
 
+local particle_node_pos_spread = vector.new(0.5,0.5,0.5)
+local particle_user_pos_spread = vector.new(0.5,1.5,0.5)
+local particle_speed_spread = vector.new(0.1,0.1,0.1)
+local particle_poof = function(pos)
+	minetest.add_particlespawner({
+		amount = 100,
+		time = 0.1,
+		minpos = vector.subtract(pos, particle_node_pos_spread),
+		maxpos = vector.add(pos, particle_user_pos_spread),
+		minvel = particle_speed_spread,
+		maxvel = particle_speed_spread,
+		minacc = {x=0, y=0, z=0},
+		maxacc = {x=0, y=0, z=0},
+		minexptime = 0.1,
+		maxexptime = 0.5,
+		minsize = 1,
+		maxsize = 1,
+		collisiondetection = false,
+		vertical = false,
+		texture = "pocket_dimensions_spark.png",
+	})		
+end
+local teleport_player = function(player, dest)
+	local source_pos = player:get_pos()
+	particle_poof(source_pos)
+	minetest.sound_play({name="pocket_dimensions_teleport_from"}, {pos = source_pos}, true)
+	player:set_pos(dest)
+	particle_poof(dest)
+	minetest.sound_play({name="pocket_dimensions_teleport_to"}, {pos = dest}, true)
+end
+
+-----------------------------------------------------------------
+-- Border materials
 
 local get_border_def = function(override)
 	local def = {
@@ -172,7 +204,7 @@ local get_border_def = function(override)
 			local name = clicker:get_player_name()
 			local origin = player_origin[name]
 			if origin then
-				clicker:set_pos(origin)
+				teleport_player(clicker, origin)
 				player_origin[name] = nil
 				save_data()
 			end
@@ -240,7 +272,7 @@ local terrain_map = PerlinNoiseMap(
 )
 
 -- Once the map block for the new pocket dimension is loaded, this initializes its node layout and finds a default spot for arrivals to teleport to
-local emerge_terrain_callback = function(blockpos, action, calls_remaining, pocket_data)
+local emerge_grassy_callback = function(blockpos, action, calls_remaining, pocket_data)
 	if pocket_data.pending ~= true then
 		return
 	end
@@ -254,7 +286,7 @@ local emerge_terrain_callback = function(blockpos, action, calls_remaining, pock
 	local terrain_values = terrain_map:get_2d_map(minp)
 	
 	-- Default is down on the floor of the border walls, in case default mod isn't installed and no landscape is created
-	local middlep = {x=math.floor(mapblock_size/2), y=2, z=math.floor(mapblock_size/2)}
+	local middlep = {x=minp.x + math.floor(mapblock_size/2), y=2, z=minp.z + math.floor(mapblock_size/2)}
 	
 	for vi, x, y, z in area:iterp_xyz(minp, maxp) do
 		if x == minp.x or x == maxp.x or y == minp.y or y == maxp.y or z == minp.z or z == maxp.z then
@@ -345,7 +377,9 @@ local emerge_cave_callback = function(blockpos, action, calls_remaining, pocket_
 end
 
 
-local create_new_pocket = function(pocket_name, player_name, set_as_owner)
+local create_new_pocket = function(pocket_name, player_name, pocket_data_override)
+	pocket_data_override = pocket_data_override or {}
+	pocket_data_override.type = pocket_data_override.type or "grassy"
 	if pocket_name == nil or pocket_name == "" then
 		if player_name then
 			minetest.chat_send_player(player_name, S("Please provide a name for the pocket dimension"))
@@ -370,10 +404,14 @@ local create_new_pocket = function(pocket_name, player_name, set_as_owner)
 			local pocket_data = {pending=true, minp=pos, name=pocket_name}
 			pockets_by_hash[hash] = pocket_data
 			pockets_by_name[string.lower(pocket_name)] = pocket_data
-			if set_as_owner then
-				pocket_data.owner = set_as_owner
+			for key, value in pairs(pocket_data_override) do
+				pocket_data[key] = value
 			end
-			minetest.emerge_area(pos, pos, emerge_cave_callback, pocket_data)
+			if pocket_data.type == "grassy" then
+				minetest.emerge_area(pos, pos, emerge_grassy_callback, pocket_data)
+			else
+				minetest.emerge_area(pos, pos, emerge_cave_callback, pocket_data)
+			end
 			save_data()
 			minetest.chat_send_player(player_name, S("Pocket dimension @1 created", pocket_name))
 			minetest.log("action", "[pocket_dimensions] " .. player_name .. " Created a pocket dimension named " .. pocket_name .. " at " .. minetest.pos_to_string(pos))
@@ -399,7 +437,7 @@ local teleport_player_to_pocket = function(player_name, pocket_name)
 		player_origin[player_name] = player:get_pos()
 		save_data()
 	end
-	player:set_pos(dest)
+	teleport_player(player, dest)
 	return true
 end
 
@@ -542,7 +580,8 @@ local get_admin_formspec = function(player_name)
 	formspec[#formspec+1] = "container[0.5,7]"
 		.."field[0.0,0.0;6.5,0.5;pocket_name;;" .. minetest.formspec_escape(selected_data.name or "") .."]"
 		.."button[0,0.5;3,0.5;rename;"..S("Rename").."]"
-		.."button[3.5,0.5;3,0.5;create;"..S("Create").."]"
+		.."button[3.5,0.5;2,0.5;create;"..S("Create").."]"
+		.."dropdown[5.5,0.5;1,0.5;create_type;grassy,cave;1]"
 		.."button[0,1;3,0.5;teleport;"..S("Teleport To").."]"
 		.."button[3.5,1;3,0.5;protect;"..S("Toggle Protect").."]"
 		.."button[0,1.5;3,0.5;delete;"..delete_label.."]"		
@@ -610,7 +649,7 @@ minetest.register_on_player_receive_fields(function(player, formname, fields)
 	end
 	
 	if fields.create then
-		if create_new_pocket(fields.pocket_name, player_name) then
+		if create_new_pocket(fields.pocket_name, player_name, {type=fields.create_type}) then
 			refresh = true
 		end
 	end
