@@ -55,8 +55,8 @@ end
 local pockets_by_hash = {}
 local pockets_by_name = {}
 local player_origin = {}
-local personal_pockets = {}
 local pockets_deleted = {} -- record deleted pockets for possible later undeletion, indexed by hash
+local personal_pockets -- to be filled out if personal pockets are enabled
 
 local protected_areas = AreaStore()
 
@@ -86,8 +86,15 @@ local load_data = function()
 		pockets_by_hash = data.pockets_by_hash
 		pockets_by_name = {} -- to be filled from pockets_by_hash
 		player_origin = data.player_origin
-		personal_pockets = data.personal_pockets
 		pockets_deleted = data.pockets_deleted
+		if personal_pockets_enabled then
+			personal_pockets = {}
+			for hash, pocket_data in pairs(pockets_by_hash) do
+				if pocket_data.personal then
+					personal_pockets[pocket_data.personal] = pocket_data
+				end
+			end
+		end
 	else
 		return
 	end
@@ -109,7 +116,6 @@ local save_data = function()
 	local data = {}
 	data.pockets_by_hash = pockets_by_hash
 	data.player_origin = player_origin
-	data.personal_pockets = personal_pockets
 	data.pockets_deleted = pockets_deleted
 	local file, e = io.open(filename, "w");
 	if not file then
@@ -655,20 +661,34 @@ minetest.register_on_player_receive_fields(function(player, formname, fields)
 	end
 	
 	if fields.delete then
+		local pocket_hash = minetest.hash_node_position(pocket_data.minp)
 		if state.undelete == "true" then
 			if pockets_by_name[string.lower(pocket_data.name)] then
 				minetest.chat_send_player(player_name, S("Cannot undelete, a pocket dimension with that name already exists"))
 			else
-				pockets_deleted[minetest.hash_node_position(pocket_data.minp)] = nil
+				pockets_deleted[pocket_hash] = nil
 				pockets_by_name[string.lower(pocket_data.name)] = pocket_data
-				pockets_by_hash[minetest.hash_node_position(pocket_data.minp)] = pocket_data
+				pockets_by_hash[pocket_hash] = pocket_data
+				if pocket_data.personal and personal_pockets and not personal_pockets[pocket_data.personal] then
+					-- it was a personal pocket and the player hasn't created a new one, so restore that association
+					personal_pockets[pocket_data.personal] = pocket_data
+				end
 				minetest.chat_send_player(player_name, S("Undeleted pocket dimension @1 at @2. Note that this doesn't affect the map, just moves this pocket dimension out of regular access and into the deleted list.", pocket_data.name, minetest.pos_to_string(pocket_data.minp)))
 				minetest.log("action", "[pocket_dimensions] " .. player_name .. " undeleted the pocket dimension " .. pocket_data.name .. " at " .. minetest.pos_to_string(pocket_data.minp))
 			end				
-		else	
-			pockets_deleted[minetest.hash_node_position(pocket_data.minp)] = pocket_data
+		else
+			pockets_deleted[pocket_hash] = pocket_data
 			pockets_by_name[string.lower(pocket_data.name)] = nil
-			pockets_by_hash[minetest.hash_node_position(pocket_data.minp)] = nil
+			pockets_by_hash[pocket_hash] = nil
+			if personal_pockets then
+				for name, hash in pairs(personal_pockets) do
+					if hash == pocket_hash then
+						-- we're deleting a personal pocket, remove its record
+						personal_pockets[name] = nil
+						break
+					end
+				end
+			end
 			minetest.chat_send_player(player_name, S("Deleted pocket dimension @1 at @2. Note that this doesn't affect the map, just moves this pocket dimension out of regular access and into the deleted list.", pocket_data.name, minetest.pos_to_string(pocket_data.minp)))
 			minetest.log("action", "[pocket_dimensions] " .. player_name .. " deleted the pocket dimension " .. pocket_data.name .. " at " .. minetest.pos_to_string(pocket_data.minp))
 		end
@@ -737,7 +757,7 @@ if personal_pockets_enabled then
 				return
 			end
 
-			pocket_data = create_new_pocket(param, player_name, player_name)
+			pocket_data = create_new_pocket(param, player_name, {protected=player_name, personal=player_name, type="grassy"})
 			if pocket_data then
 				personal_pockets[player_name] = pocket_data
 				teleport_to_pending(param, player_name, 1)
