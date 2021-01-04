@@ -10,7 +10,6 @@ This mod provides a variety of settings that allow server admins to enable or di
 
 * Automatic personal pockets - each player can automatically access one protected pocket dimension that they own.
 * "portals" that allow access to existing public pocket dimensions, possibly set up ahead of time by the server admin
-* Player-crafted public pocket dimensions
 
 # Settings
 

@@ -48,6 +48,7 @@ local pockets_by_hash = {}
 local pockets_by_name = {}
 local player_origin = {}
 local personal_pockets = {}
+local pockets_deleted = {} -- record deleted pockets for possible later undeletion, indexed by hash
 
 local protected_areas = AreaStore()
 
@@ -78,6 +79,7 @@ local load_data = function()
 		pockets_by_name = {} -- to be filled from pockets_by_hash
 		player_origin = data.player_origin
 		personal_pockets = data.personal_pockets
+		pockets_deleted = data.pockets_deleted
 	else
 		return
 	end
@@ -100,6 +102,7 @@ local save_data = function()
 	data.pockets_by_hash = pockets_by_hash
 	data.player_origin = player_origin
 	data.personal_pockets = personal_pockets
+	data.pockets_deleted = pockets_deleted
 	local file, e = io.open(filename, "w");
 	if not file then
 		return error(e);
@@ -302,9 +305,13 @@ end
 
 minetest.register_node("pocket_dimensions:border_glass", get_border_def(
 	{
-		drawtype = "glasslike_framed_optional",
-		tiles = {"pocket_dimensions_transparent.png"},
-		paramtype2 = "glasslikeliquidlevel",
+		use_texture_alpha = true,
+		tiles = {{name="pocket_dimensions_transparent.png",
+			tileable_vertical=true,
+			tileable_horizontal=true,
+			align_style="world",
+			scale=2,
+		}},
 	}
 ))
 local c_border_glass = minetest.get_content_id("pocket_dimensions:border_glass")
@@ -403,7 +410,7 @@ local create_new_pocket = function(pocket_name, player_name, set_as_owner)
 		local index = math.random(0, max_pockets)
 		local pos = index_to_minp(index)
 		local hash = minetest.hash_node_position(pos)
-		if pockets_by_hash[hash] == nil then
+		if pockets_by_hash[hash] == nil and pockets_deleted[hash] == nil then
 			local pocket_data = {pending=true, minp=pos, name=pocket_name}
 			pockets_by_hash[hash] = pocket_data
 			pockets_by_name[string.lower(pocket_name)] = pocket_data
@@ -522,23 +529,6 @@ end)
 -------------------------------------------------------------------------------
 -- Admin commands
 
-local get_pocket_data = function(player_name, pocket_name)
-	if pocket_name == "" or pocket_name == nil then
-		minetest.chat_send_player(player_name, S("Please provide a name for the pocket dimension"))
-		return
-	end
-	local pocket_data = pockets_by_name[string.lower(pocket_name)]
-	if pocket_data == nil then
-		minetest.chat_send_player(player_name, S("Pocket dimension doesn't exist"))
-		return
-	end
-	if pocket_data.pending then
-		minetest.chat_send_player(player_name, S("Pocket dimension not yet initialized"))
-		return
-	end
-	return pocket_data
-end
-
 local update_protected = function(pocket_data)
 	-- clear any existing protection
 	protected = protected_areas:get_areas_for_pos(pocket_data.minp)
@@ -550,24 +540,6 @@ local update_protected = function(pocket_data)
 		protected_areas:insert_area(pocket_data.minp, vector.add(pocket_data.minp, mapblock_size), pocket_data.owner)
 	end
 end
-
-minetest.register_chatcommand("pocket_delete", {
-	params = "pocketname",
-	privs = {server = true},
-	description = S("Delete a pocket dimension. Note that this does not affect the map, it only removes the dimension's location from pocket_dimension's records."),
-	func = function(name, param)
-		local pocket_data = get_pocket_data(name, param)
-		if pocket_data == nil then
-			return
-		end
-		
-		pockets_by_name[string.lower(param)] = nil
-		pockets_by_hash[minetest.hash_node_position(pocket_data.minp)] = nil
-		minetest.chat_send_player(name, S("Deleted pocket dimension " .. param .. " at " .. minetest.pos_to_string(pocket_data.minp)))
-		minetest.log("action", "[pocket_dimensions] " .. name .. " deleted the pocket dimension " .. param .. " at " .. minetest.pos_to_string(pocket_data.minp))
-		save_data()
-	end,
-})
 
 minetest.register_chatcommand("pocket_undelete", {
 	params = "pocketname (x,y,z)",
@@ -594,10 +566,7 @@ minetest.register_chatcommand("pocket_undelete", {
 	end,
 })
 
--------------------------------------------------------------------------------------------------------
-
 local formspec_state = {}
-
 local get_admin_formspec = function(player_name)
 	formspec_state[player_name] = formspec_state[player_name] or {row_index=1}
 	local state = formspec_state[player_name]
@@ -628,17 +597,18 @@ local get_admin_formspec = function(player_name)
 	end
 	formspec[#formspec] = ";"..state.row_index.."]" -- don't use +1, this overwrites the last ","
 	
-	if state.selected_data then
+	local selected_data = state.selected_data or {}
+	
 	formspec[#formspec+1] = "container[0.5,7.25]"
-		.."field[0.0,0.0;6,0.5;pocket_name;;" .. minetest.formspec_escape(state.selected_data.name) .."]"
+		.."field[0.0,0.0;6,0.5;pocket_name;;" .. minetest.formspec_escape(selected_data.name or "") .."]"
 		.."button[0,0.5;3,0.5;rename;"..S("Rename").."]"
 		.."button[3.5,0.5;3,0.5;create;"..S("Create").."]"
 		.."button[0,1;3,0.5;teleport;"..S("Teleport To").."]"
 		.."button[3.5,1;3,0.5;protect;"..S("Toggle Protect").."]"
-		.."field[0.0,1.5;3,0.5;owner;;".. minetest.formspec_escape(state.selected_data.owner or "").."]"
-		.."button[3.5,1.5;3,0.5;set_owner;"..S("Set Owner").."]"
+		.."button[0,1.5;3,0.5;delete;"..S("Delete").."]"		
+		.."field[0.0,2;3,0.5;owner;;".. minetest.formspec_escape(selected_data.owner or "").."]"
+		.."button[3.5,2;3,0.5;set_owner;"..S("Set Owner").."]"
 		.."container_end[]"
-	end
 	return table.concat(formspec)
 end
 
@@ -697,7 +667,18 @@ minetest.register_on_player_receive_fields(function(player, formname, fields)
 		if create_new_pocket(fields.pocket_name, player_name) then
 			refresh = true
 		end
-	end	
+	end
+	
+	if fields.delete then
+		pockets_deleted[minetest.hash_node_position(pocket_data.minp)] = pocket_data
+		pockets_by_name[string.lower(pocket_data.name)] = nil
+		pockets_by_hash[minetest.hash_node_position(pocket_data.minp)] = nil
+		minetest.chat_send_player(player_name, S("Deleted pocket dimension @1 at @2. Note that this doesn't affect the map, just moves this pocket dimension out of regular access and into the deleted list.", pocket_data.name, minetest.pos_to_string(pocket_data.minp)))
+		minetest.log("action", "[pocket_dimensions] " .. player_name .. " deleted the pocket dimension " .. pocket_data.name .. " at " .. minetest.pos_to_string(pocket_data.minp))
+		save_data()
+		state.row_index = 1
+		refresh = true
+	end
 	
 	if fields.protect then
 		pocket_data.protected = not pocket_data.protected
@@ -726,10 +707,7 @@ minetest.register_on_player_receive_fields(function(player, formname, fields)
 	end
 end)
 
-
-
 -------------------------------------------------------------------------------------------------------
-
 
 if personal_pockets_enabled then
 
@@ -770,7 +748,3 @@ if personal_pockets_enabled then
 		end,
 	})
 end
-
-
-
------------------------------------------------------------------
