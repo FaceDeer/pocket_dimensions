@@ -152,16 +152,16 @@ local get_border_def = function(override)
 		description = S("Boundary of a pocket dimension"),
 		groups = {not_in_creative_inventory = 1},
 		drawtype = "normal",  -- See "Node drawtypes"
-		light_source = 4,
 		paramtype = "light",  -- See "Nodes"
 		paramtype2 = "none",  -- See "Nodes"
 		is_ground_content = false, -- If false, the cave generator and dungeon generator will not carve through this node.
-		sunlight_propagates = true, -- If true, sunlight will go infinitely through this node
 		walkable = true,  -- If true, objects collide with node
 		pointable = true,  -- If true, can be pointed at
 		diggable = false,  -- If false, can never be dug
 		node_box = {type="regular"},  -- See "Node boxes"
-		--sounds = 
+		sounds = {
+            footstep = {name = "pocket_dimensions_footstep", gain = 0.25},
+		},
 		can_dig = function(pos, player) return false end,
 		on_blast = function(pos, intensity) return false end,
         on_punch = function(pos, node, clicker, pointed_thing)
@@ -193,22 +193,28 @@ local get_border_def = function(override)
 	return def
 end
 
-minetest.register_node("pocket_dimensions:border_glass", get_border_def(
-	{
-		use_texture_alpha = true,
-		tiles = {{name="pocket_dimensions_transparent.png",
-			tileable_vertical=true,
-			tileable_horizontal=true,
-			align_style="world",
-			scale=2,
-		}},
-	}
-))
+minetest.register_node("pocket_dimensions:border_glass", get_border_def({
+	light_source = 4,
+	sunlight_propagates = true, -- If true, sunlight will go infinitely through this node
+	use_texture_alpha = true,
+	tiles = {{name="pocket_dimensions_transparent.png",
+		tileable_vertical=true,
+		tileable_horizontal=true,
+		align_style="world",
+		scale=2,
+	}},
+}))
 
-local c_border = minetest.get_content_id("pocket_dimensions:border_glass")
+local c_border_glass = minetest.get_content_id("pocket_dimensions:border_glass")
+
+minetest.register_node("pocket_dimensions:border_gray", get_border_def({
+	tiles = {{name="pocket_dimensions_white.png", color="#888888"}}
+}))
+
+local c_border_gray = minetest.get_content_id("pocket_dimensions:border_gray")
 
 ---------------------------------------------------------------
--- For generating simple terrain inside new pocket dimensions
+-- Pocket creation
 
 local spread_magnitude = mapblock_size
 local scale_magnitude = 5
@@ -225,8 +231,6 @@ local perlin_params = {
 
 local perlin_noise = PerlinNoise(perlin_params)
 
---------------------------------------------------------------------------------------------------
-
 -- TODO don't know why minetest.get_perlin_map isn't working here, but don't really care
 -- pocket dimensions are distributed randomly so doesn't really matter whether their terrain
 -- is world-seeded. Nobody will ever notice.
@@ -236,7 +240,7 @@ local terrain_map = PerlinNoiseMap(
 )
 
 -- Once the map block for the new pocket dimension is loaded, this initializes its node layout and finds a default spot for arrivals to teleport to
-local emerge_callback = function(blockpos, action, calls_remaining, pocket_data)
+local emerge_terrain_callback = function(blockpos, action, calls_remaining, pocket_data)
 	if pocket_data.pending ~= true then
 		return
 	end
@@ -247,15 +251,14 @@ local emerge_callback = function(blockpos, action, calls_remaining, pocket_data)
 	local data = vm:get_data()
 	local area = VoxelArea:new{MinEdge = emin, MaxEdge = emax}
 	local surface = minp.y + 40
-	local rock = minp.y + 38
 	local terrain_values = terrain_map:get_2d_map(minp)
 	
 	-- Default is down on the floor of the border walls, in case default mod isn't installed and no landscape is created
-	local middlep = {x=minp.x+math.floor(mapblock_size/2), y=minp.y+2, z=minp.z+math.floor(mapblock_size/2)}
+	local middlep = {x=math.floor(mapblock_size/2), y=2, z=math.floor(mapblock_size/2)}
 	
 	for vi, x, y, z in area:iterp_xyz(minp, maxp) do
 		if x == minp.x or x == maxp.x or y == minp.y or y == maxp.y or z == minp.z or z == maxp.z then
-			data[vi] = c_border
+			data[vi] = c_border_glass
 		elseif default_modpath or mcl_core_modpath then
 			local terrain_level = math.floor(terrain_values[x-minp.x+1][z-minp.z+1] + surface)
 			local below_water = y < surface
@@ -293,8 +296,54 @@ local emerge_callback = function(blockpos, action, calls_remaining, pocket_data)
 	pocket_data.pending = nil
 	pocket_data.destination = middlep
 	save_data()
+	minetest.log("action", "[pocket_dimensions] Finished initializing terrain map for pocket dimension " .. pocket_data.name)
+end
+
+local emerge_cave_callback = function(blockpos, action, calls_remaining, pocket_data)
+	if pocket_data.pending ~= true then
+		return
+	end
+	local minp = pocket_data.minp
+	local maxp = vector.add(minp, mapblock_size)
+	local vm = minetest.get_voxel_manip(minp, maxp)
+	local emin, emax = vm:get_emerged_area()
+	local data = vm:get_data()
+	local area = VoxelArea:new{MinEdge = emin, MaxEdge = emax}
+	local terrain_values = terrain_map:get_3d_map(minp)
+	
+	local nearest_to_center = vector.add(minp, 2) -- start off down in the corner
+	local center = vector.add(minp, math.floor(mapblock_size/2))
+	for vi, x, y, z in area:iterp_xyz(minp, maxp) do
+		if x == minp.x or x == maxp.x or y == minp.y or y == maxp.y or z == minp.z or z == maxp.z then
+			data[vi] = c_border_gray
+		elseif default_modpath or mcl_core_modpath then
+			local terrain_level = terrain_values[x-minp.x+1][y-minp.y+1][z-minp.z+1]
+			if terrain_level <= 2 then
+				data[vi] = c_stone
+			else
+				data[vi] = c_air
+				if vector.distance({x=x,y=y,z=z}, center) < vector.distance(nearest_to_center, center) then
+					nearest_to_center = {x=x,y=y,z=z}
+				end
+			end
+		end
+	end
+	
+	vm:set_data(data)
+	vm:write_to_map()
+	
+	-- drop the entry point downward until it hits non-air.
+	while minetest.get_node(nearest_to_center).name == "air" and nearest_to_center.y > minp.y do
+		nearest_to_center.y = nearest_to_center.y -1
+	end
+	nearest_to_center.y = nearest_to_center.y + 2
+	
+	pocket_data.pending = nil
+	pocket_data.destination = vector.subtract(nearest_to_center, minp)
+	save_data()
 	minetest.log("action", "[pocket_dimensions] Finished initializing map for pocket dimension " .. pocket_data.name)
 end
+
 
 local create_new_pocket = function(pocket_name, player_name, set_as_owner)
 	if pocket_name == nil or pocket_name == "" then
@@ -324,7 +373,7 @@ local create_new_pocket = function(pocket_name, player_name, set_as_owner)
 			if set_as_owner then
 				pocket_data.owner = set_as_owner
 			end
-			minetest.emerge_area(pos, pos, emerge_callback, pocket_data)
+			minetest.emerge_area(pos, pos, emerge_cave_callback, pocket_data)
 			save_data()
 			minetest.chat_send_player(player_name, S("Pocket dimension @1 created", pocket_name))
 			minetest.log("action", "[pocket_dimensions] " .. player_name .. " Created a pocket dimension named " .. pocket_name .. " at " .. minetest.pos_to_string(pos))
