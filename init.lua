@@ -472,12 +472,23 @@ end
 minetest.register_node("pocket_dimensions:portal", {
     description = S("Pocket Dimension Access"),
     groups = {oddly_breakable_by_hand = 1},
-	drawtype = "normal",
-	tiles = {"pocket_dimensions_portal_base.png","pocket_dimensions_portal_base.png","pocket_dimensions_portal.png"},
-	paramtype="light",
-	paramtype2="facedir",
-	is_ground_content=false,
-	node_box={type="regular"},
+	tiles = {"pocket_dimensions_portal.png"},
+	is_ground_content=false,	
+	drawtype = "nodebox",
+	paramtype = "light",
+	paramtype2 = "facedir",
+	node_box = {
+		type = "fixed",
+		fixed = {
+			{-0.5, -0.375, -0.5, 0.5, -0.25, 0.5},
+			{-0.5, 0.25, -0.5, 0.5, 0.375, 0.5},
+			{-0.3125, 0.125, -0.3125, 0.3125, 0.5, 0.3125},
+			{-0.3125, -0.5, -0.3125, 0.3125, -0.125, 0.3125},
+			{-0.125, -0.125, -0.125, 0.125, -0.0625, 0.125},
+			{-0.125, 0.0625, -0.125, 0.125, 0.125, 0.125},
+			{-0.0625, -0.0625, -0.0625, 0.0625, 0.0625, 0.0625},
+		}
+	},
 
 	on_rightclick = function(pos, node, clicker, itemstack, pointed_thing)
 		local player_name = clicker:get_player_name()
