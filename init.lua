@@ -16,7 +16,13 @@ local min_coordinate = -30912
 local layer_elevation = tonumber(minetest.settings:get("pocket_dimensions_altitude")) or 30000
 layer_elevation = math.floor(layer_elevation / mapblock_size) * mapblock_size - 32 -- round to mapblock boundary
 
-local personal_pockets_enabled = minetest.settings:get_bool("pocket_dimensions_personal_pockets", false)
+local personal_pockets_chat_command = minetest.settings:get_bool("pocket_dimensions_personal_pockets_chat_command", false)
+local personal_pockets_key = minetest.settings:get_bool("pocket_dimensions_personal_pockets_key", false)
+local personal_pockets_key_uses = tonumber(minetest.settings:get("pocket_dimensions_personal_pockets_key_uses")) or 0
+local personal_pockets_spawn = minetest.settings:get_bool("pocket_dimensions_personal_pockets_spawn", false)
+local personal_pockets_respawn = minetest.settings:get_bool("pocket_dimensions_personal_pockets_respawn", false)
+
+local personal_pockets_enabled = personal_pockets_chat_command or personal_pockets_key or personal_pockets_spawn or personal_pockets_respawn
 
 local c_air = minetest.get_content_id("air")
 
@@ -56,10 +62,11 @@ local pockets_by_hash = {}
 local pockets_by_name = {}
 local player_origin = {}
 local pockets_deleted = {} -- record deleted pockets for possible later undeletion, indexed by hash
-local personal_pockets -- to be filled out if personal pockets are enabled
+local personal_pockets = {} -- to be filled out if personal pockets are enabled
 
 local protected_areas = AreaStore()
 
+-------------------------------------------------------------------------------------
 -- protection override
 local old_is_protected = minetest.is_protected
 function minetest.is_protected(pos, name)
@@ -88,7 +95,6 @@ local load_data = function()
 		player_origin = data.player_origin
 		pockets_deleted = data.pockets_deleted
 		if personal_pockets_enabled then
-			personal_pockets = {}
 			for hash, pocket_data in pairs(pockets_by_hash) do
 				if pocket_data.personal then
 					personal_pockets[pocket_data.personal] = pocket_data
@@ -147,6 +153,17 @@ minetest.register_globalstep(function(dtime)
 		since_last_check = 0
 	end
 end)
+
+-- returns a place to put players if they have no origin recorded
+local get_fallback_origin = function()
+	local spawnpoint = minetest.setting_get_pos("static_spawnpoint")
+	if not spawnpoint then
+		local x = math.random()*1000 - 500
+		local z = math.random()*1000 - 500
+		local y =minetest.get_spawn_level(x,z)
+		spawnpoint = {x=x,y=y,z=z}
+	end
+end
 
 ------------------------------------------------------------------------------------------
 -- Teleport effects
@@ -216,13 +233,7 @@ local get_border_def = function(override)
 				return
 			end
 			-- If the player's lost their origin data somehow, dump them somewhere using the spawn system to find an adequate place.
-			local spawnpoint = minetest.setting_get_pos("static_spawnpoint")
-			if not spawnpoint then
-				local x = math.random()*1000 - 500
-				local z = math.random()*1000 - 500
-				local y =minetest.get_spawn_level(x,z)
-				spawnpoint = {x=x,y=y,z=z}
-			end
+			local spawnpoint = get_fallback_origin()
 			minetest.log("error", "[pocket_dimensions] Somehow "..name.." was at "..minetest.pos_to_string(clicker:get_pos())..
 				" inside a pocket dimension but they had no origin point recorded when they tried to leave. Sending them to "..
 				minetest.pos_to_string(spawnpoint).." as a fallback.")
@@ -779,38 +790,113 @@ if personal_pockets_enabled then
 		end
 		minetest.chat_send_player(player_name, S("Teleport to personal pocket dimension @1 failed after @2 tries.", pocket_name, count))
 	end
+	
+	local teleport_to_personal_pocket = function(player_name)
+		local pocket_data = personal_pockets[player_name]
+		if pocket_data then
+			teleport_player_to_pocket(player_name, pocket_data.name)
+			return
+		end
 
-	minetest.register_chatcommand("pocket_personal", {
-		params = "",
---		privs = {}, -- TODO a new privilege here?
-		description = S("Teleport to your personal pocket dimension"),
-		func = function(player_name, param)
-	
-			local pocket_data = personal_pockets[player_name]
-			if pocket_data then
-				teleport_player_to_pocket(player_name, pocket_data.name)
-				return
-			end
-	
-			-- Find an unused default name
-			local new_pocket_name = player_name
-			if pockets_by_name[string.lower(new_pocket_name)] then
-				local count = 1
-				local new_pocket_name_prefix = new_pocket_name
+		-- Find an unused default name
+		local new_pocket_name = player_name
+		if pockets_by_name[string.lower(new_pocket_name)] then
+			local count = 1
+			local new_pocket_name_prefix = new_pocket_name
+			new_pocket_name = new_pocket_name_prefix .. " " .. count
+			while pockets_by_name[string.lower(new_pocket_name)] do
+				count = count + 1
 				new_pocket_name = new_pocket_name_prefix .. " " .. count
-				while pockets_by_name[string.lower(new_pocket_name)] do
-					count = count + 1
-					new_pocket_name = new_pocket_name_prefix .. " " .. count
-				end		
-			end
+			end		
+		end
 
-			pocket_data = create_new_pocket(new_pocket_name, player_name, {protected=true, owner=player_name, personal=player_name, type="grassy"})
-			if pocket_data then
-				personal_pockets[player_name] = pocket_data
-				teleport_to_pending(new_pocket_name, player_name, 1)
-			end
-		end,
-	})
+		pocket_data = create_new_pocket(new_pocket_name, player_name, {protected=true, owner=player_name, personal=player_name, type="grassy"})
+		if pocket_data then
+			personal_pockets[player_name] = pocket_data
+			teleport_to_pending(new_pocket_name, player_name, 1)
+		end
+	end
+
+	if personal_pockets_chat_command then
+		minetest.register_chatcommand("pocket_personal", {
+			params = "",
+	--		privs = {}, -- TODO a new privilege here?
+			description = S("Teleport to your personal pocket dimension"),
+			func = function(player_name, param)
+				teleport_to_personal_pocket(player_name)
+			end,
+		})
+	end
+	
+	if personal_pockets_key then		
+		local trigger_stack_size = 99
+		local trigger_wear_amount = 0
+		local trigger_tool_capabilities = nil
+		local trigger_help_addendum = ""
+
+		if personal_pockets_key_uses > 0 then
+			trigger_stack_size = 1
+			trigger_wear_amount = math.ceil(65535 / personal_pockets_key_uses)
+			trigger_tool_capabilities = {
+				full_punch_interval=1.5,
+				max_drop_level=1,
+				groupcaps={},
+				damage_groups = {},
+			}
+			trigger_help_addendum = S(" This tool can be used @1 times before breaking.", personal_pockets_key_uses)
+		end
+
+		local trigger_def = {
+			description = S("Personal Pocket Dimensional Key"),
+			_doc_items_longdesc = S("A triggering device that allows teleportation to your personal pocket dimension."),
+			_doc_items_usagehelp = S("When triggered, this tool and its user will be teleported to the user's personal pocket dimension.") .. trigger_help_addendum,
+			inventory_image = "pocket_dimensions_key.png",
+			stack_max = trigger_stack_size,
+			tool_capabilites = trigger_tool_capabilities,
+			sound = {
+				breaks = "pocket_dimensions_key_break",
+			},
+			on_use = function(itemstack, user, pointed_thing)
+				local player_name = user:get_player_name()
+				teleport_to_personal_pocket(player_name)
+				if trigger_wear_amount > 0 and not minetest.is_creative_enabled(player_name) then
+					itemstack:add_wear(trigger_wear_amount)
+				end
+				return itemstack
+			end,
+		}
+
+		if trigger_tool_capabilities then
+			minetest.register_tool("pocket_dimensions:personal_key", trigger_def)
+		else
+			minetest.register_craftitem("pocket_dimensions:personal_key", trigger_def)
+		end
+		
+		if default_modpath then
+			minetest.register_craft({
+				output = "pocket_dimensions:personal_key",
+				recipe = {
+				{"default:mese_crystal","default:skeleton_key"}
+			}})
+		end
+	end
+
+	if personal_pockets_spawn then
+		minetest.register_on_newplayer(function(player)
+			local player_name = player:get_player_name()
+			teleport_to_personal_pocket(player_name)
+			return true
+		end)
+	end
+
+	-- TODO: this isn't actually working, don't know why
+	if personal_pockets_respawn then
+		minetest.register_on_respawnplayer(function(player)
+			local player_name = player:get_player_name()
+			teleport_to_personal_pocket(player_name)
+			return true
+		end)
+	end	
 end
 
 minetest.register_chatcommand("pocket_entry", {
