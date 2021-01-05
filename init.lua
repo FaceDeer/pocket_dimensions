@@ -781,7 +781,7 @@ if personal_pockets_enabled then
 	end
 
 	minetest.register_chatcommand("pocket_personal", {
-		params = "[pocketname]",
+		params = "",
 --		privs = {}, -- TODO a new privilege here?
 		description = S("Teleport to your personal pocket dimension"),
 		func = function(player_name, param)
@@ -792,15 +792,22 @@ if personal_pockets_enabled then
 				return
 			end
 	
-			if param == nil or param == "" then
-				minetest.chat_send_player(player_name, S("You need to give your personal pocket dimension a name the first time you visit it. Use /pocket_personal pocketname. You can rename it later with /pocket_rename"))
-				return
+			-- Find an unused default name
+			local new_pocket_name = player_name
+			if pockets_by_name[string.lower(new_pocket_name)] then
+				local count = 1
+				local new_pocket_name_prefix = new_pocket_name
+				new_pocket_name = new_pocket_name_prefix .. " " .. count
+				while pockets_by_name[string.lower(new_pocket_name)] do
+					count = count + 1
+					new_pocket_name = new_pocket_name_prefix .. " " .. count
+				end		
 			end
 
-			pocket_data = create_new_pocket(param, player_name, {protected=true, owner=player_name, personal=player_name, type="grassy"})
+			pocket_data = create_new_pocket(new_pocket_name, player_name, {protected=true, owner=player_name, personal=player_name, type="grassy"})
 			if pocket_data then
 				personal_pockets[player_name] = pocket_data
-				teleport_to_pending(param, player_name, 1)
+				teleport_to_pending(new_pocket_name, player_name, 1)
 			end
 		end,
 	})
