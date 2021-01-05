@@ -29,4 +29,4 @@ This mod provides a variety of settings that allow server admins to enable or di
 
 # License
 
-This mod is released under the MIT license. Media may be under different licenses, see license.txt in the corresponding folders for details.
+This mod is released under the MIT license. voxelarea_iterator.lua is separately licensed under the LGPL, as it is derived from Minetest code; see that file's header for more details. Media may be under different licenses, see license.txt in the corresponding folders for details.
