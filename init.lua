@@ -213,8 +213,20 @@ local get_border_def = function(override)
 				teleport_player(clicker, origin)
 				player_origin[name] = nil
 				save_data()
+				return
 			end
-			-- TODO: some fallback that gets the player out of the pocket dimension if their origin got lost somehow
+			-- If the player's lost their origin data somehow, dump them somewhere using the spawn system to find an adequate place.
+			local spawnpoint = minetest.setting_get_pos("static_spawnpoint")
+			if not spawnpoint then
+				local x = math.random()*1000 - 500
+				local z = math.random()*1000 - 500
+				local y =minetest.get_spawn_level(x,z)
+				spawnpoint = {x=x,y=y,z=z}
+			end
+			minetest.log("error", "[pocket_dimensions] Somehow "..name.." was at "..minetest.pos_to_string(clicker:get_pos())..
+				" inside a pocket dimension but they had no origin point recorded when they tried to leave. Sending them to "..
+				minetest.pos_to_string(spawnpoint).." as a fallback.")
+			teleport_player(clicker, spawnpoint)
 		end,
 		on_construct = function(pos)
 			-- if somehow a player gets ahold of one of these, ensure they can't place it anywhere.
