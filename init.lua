@@ -305,7 +305,8 @@ local emerge_grassy_callback = function(blockpos, action, calls_remaining, pocke
 	
 	-- Default is down on the floor of the border walls, in case default mod isn't installed and no landscape is created
 	local middlep = {x=minp.x + math.floor(mapblock_size/2), y=2, z=minp.z + math.floor(mapblock_size/2)}
-	
+
+	local tree_spots = {}
 	for vi, x, y, z in area:iterp_xyz(minp, maxp) do
 		if x == minp.x or x == maxp.x or y == minp.y or y == maxp.y or z == minp.z or z == maxp.z then
 			data[vi] = c_border_glass
@@ -317,6 +318,9 @@ local emerge_grassy_callback = function(blockpos, action, calls_remaining, pocke
 					data[vi] = c_sand
 				else
 					data[vi] = c_dirt_with_grass
+					if math.random() < 0.01 and x > minp.x + 3 and x < maxp.x - 3 and z > minp.z + 3 and z < maxp.z - 3 then
+						table.insert(tree_spots, {x=x,y=y+1,z=z})
+					end
 				end
 				if middlep.x == x and middlep.z == z then
 					middlep.y = math.max(y + 1 - minp.y, mapblock_size/2) -- surface of the ground or water in the center of the block
@@ -339,6 +343,14 @@ local emerge_grassy_callback = function(blockpos, action, calls_remaining, pocke
 	
 	vm:set_data(data)
 	vm:write_to_map()
+	
+	for _, pos in pairs(tree_spots) do
+		if default_modpath then
+			default.grow_tree(pos, math.random() < 0.5)
+		elseif mcl_core_modpath then
+			mcl_core.generate_tree(pos, 1)
+		end
+	end
 	
 	middlep.x = math.floor(mapblock_size/2)
 	middlep.z = math.floor(mapblock_size/2)
@@ -879,3 +891,8 @@ minetest.register_chatcommand("pocket_name", {
 		minetest.chat_send_player(player_name, S("You're not inside a pocket dimension right now."))
 	end,
 })
+
+
+
+pocket_dimensions.teleport_player_to_pocket = teleport_player_to_pocket
+
