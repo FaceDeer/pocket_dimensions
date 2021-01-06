@@ -882,9 +882,38 @@ if personal_pockets_enabled then
 	end
 
 	if personal_pockets_spawn then
+
+		local return_methods = S("Make sure you take everything you want to before departing,\nthere is no conventional way to return here.")
+		local return_method_list = {}
+		if personal_pockets_respawn then
+			table.insert(return_method_list, S("Dying and respawning"))
+		end
+		if personal_pockets_key then
+			table.insert(return_method_list, S("Crafting and using a pocket dimension key"))
+		end
+		if personal_pockets_chat_command then
+			table.insert(return_method_list, S("Entering the \"/pocket_personal\" chat command"))
+		end
+		
+		if #return_method_list > 0 then
+			return_methods = S("You can return to this pocket dimension by:")
+			.. "\n* " .. table.concat(return_method_list, "\n* ")
+		end	
+	
 		minetest.register_on_newplayer(function(player)
 			local player_name = player:get_player_name()
 			teleport_to_personal_pocket(player_name)
+			
+			minetest.show_formspec(player_name, "pocket_dimensions:intro",
+				"formspec_version[2]"
+				.."size[8,3]"
+				.."button_exit[7.0,0.25;0.5,0.5;close;X]"
+				.."textarea[0.25,0.25;6.5,3;;;"
+				..S("You have spawned inside your own personal pocket dimension.\nTo leave, walk to within one meter of the pocket dimension's\nboundary and punch the barrier there.")
+				.."\n\n"
+				..return_methods				
+				.."]")
+			
 			return true
 		end)
 	end
