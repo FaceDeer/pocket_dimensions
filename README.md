@@ -15,13 +15,21 @@ This mod is compatible with both the default minetest game and Mineclone2, and w
 
 * ``pocket_dimensions_altitude`` - the y-coordinate "layer" at which pocket dimensions will be physically present in the world. Defaults to y = 30000. Try to ensure that this doesn't overlap with any regions that the players will normally be able to reach, this mod may overwrite chunks of map at this altitude in the course of gameplay.
 
-* ``pocket_dimensions_personal_pockets`` - enables the /pocket_personal chat command that lets players create and teleport to a single personal pocket dimension
+* ``pocket_dimensions_personal_pockets_chat_command`` - enables the /pocket_personal chat command that lets players create and teleport to a single personal pocket dimension
+
+* ``pocket_dimensions_personal_pockets_spawn`` - Spawn a new player in his personal pocket.
+
+* ``pocket_dimensions_personal_pockets_respawn`` - Respawn a dead player in his personal pocket. Note that the engine_spawn config setting will disable this if set to true.
+
+* ``pocket_dimensions_personal_pockets_key`` - Allow personal pocket access via a craftable key item
+
+* ``pocket_dimensions_personal_pockets_key_uses`` - Number of uses a pocket key has before it breaks. Set this to 0 for infinite uses.
 
 # Commands
 
 * ``/pocket_admin`` is available to server admins and opens up a formspec that allows pocket dimensions to be managed. Pocket dimensions can be created or deleted here (and undeleted), they can have their ownership set, and they can be protected or unprotected.
 
-* ``/pocket_personal`` teleports you directly to your personal pocket dimension, if this feature has been enabled on this server. If this is your first time visiting your pocket dimension you'll need to provide a name for it as a parameter.
+* ``/pocket_personal`` teleports you directly to your personal pocket dimension, if this feature has been enabled on this server.
 
 * ``/pocket_entry`` resets the "arrival" point of the pocket dimension you're currently inside to your current location. This command is only available if you're a server admin or if you're inside a pocket dimension that you're the owner of.
 
