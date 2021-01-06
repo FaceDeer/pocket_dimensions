@@ -8,6 +8,7 @@ pocket_dimensions_altitude (Approximate y coordinate pocket dimensions will exis
 
 pocket_dimensions_personal_pockets_chat_command (Allow personal pocket access by chat command) bool false
 pocket_dimensions_personal_pockets_spawn (Spawn a new player in his personal pocket) bool false
+#Note that the engine_spawn config setting will disable this if set to true.
 pocket_dimensions_personal_pockets_respawn (Respawn a dead player in his personal pocket) bool false
 pocket_dimensions_personal_pockets_key (Allow personal pocket access via a craftable key item) bool false
 pocket_dimensions_personal_pockets_key_uses (Personal pocket key uses before it breaks - 0 for infinite) int 0

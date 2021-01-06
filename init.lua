@@ -20,7 +20,7 @@ local personal_pockets_chat_command = minetest.settings:get_bool("pocket_dimensi
 local personal_pockets_key = minetest.settings:get_bool("pocket_dimensions_personal_pockets_key", false)
 local personal_pockets_key_uses = tonumber(minetest.settings:get("pocket_dimensions_personal_pockets_key_uses")) or 0
 local personal_pockets_spawn = minetest.settings:get_bool("pocket_dimensions_personal_pockets_spawn", false)
-local personal_pockets_respawn = minetest.settings:get_bool("pocket_dimensions_personal_pockets_respawn", false)
+local personal_pockets_respawn = minetest.settings:get_bool("pocket_dimensions_personal_pockets_respawn", false) and not minetest.settings:get_bool("engine_spawn")
 
 local personal_pockets_enabled = personal_pockets_chat_command or personal_pockets_key or personal_pockets_spawn or personal_pockets_respawn
 
@@ -889,11 +889,17 @@ if personal_pockets_enabled then
 		end)
 	end
 
-	-- TODO: this isn't actually working, don't know why
 	if personal_pockets_respawn then
 		minetest.register_on_respawnplayer(function(player)
 			local player_name = player:get_player_name()
-			teleport_to_personal_pocket(player_name)
+			-- HACK: due to API limitations in the default game's "spawn" mod, this 
+			-- code can't override its behaviour cleanly. See https://github.com/minetest/minetest_game/issues/2630
+			-- that's why this horrible minetest.after hack is here.
+			if default_modpath then
+				minetest.after(0, teleport_to_personal_pocket, player_name)
+			else			
+				teleport_to_personal_pocket(player_name)
+			end
 			return true
 		end)
 	end	
