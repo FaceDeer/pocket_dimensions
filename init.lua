@@ -2,19 +2,27 @@ pocket_dimensions = {}
 local S = minetest.get_translator(minetest.get_current_modname())
 local MP = minetest.get_modpath(minetest.get_current_modname())
 dofile(MP.."/voxelarea_iterator.lua")
+dofile(MP.."/api.lua")
 
---The world is a cube of side length 61840. Coordinates go from -30912 to 30927 in any direction.
---The side length is a multiple of 80
---773 * 80 = 61840
--- so there are 773 * 773 = 597529 chunk in a horizontal layer. Should be plenty for distributing these things in.
+-- API
+local get_pocket = pocket_dimensions.get_pocket
+local get_all_pockets = pocket_dimensions.get_all_pockets
+local get_deleted_pockets = pocket_dimensions.get_deleted_pockets
+local rename_pocket = pocket_dimensions.rename_pocket
+local register_pocket_type = pocket_dimensions.register_pocket_type
+local create_pocket = pocket_dimensions.create_pocket
+local delete_pocket = pocket_dimensions.delete_pocket
+local undelete_pocket = pocket_dimensions.undelete_pocket
+local set_protection = pocket_dimensions.set_protection
+local pocket_containing_pos = pocket_dimensions.pocket_containing_pos
+local set_destination = pocket_dimensions.set_destination
+local get_personal_pocket = pocket_dimensions.get_personal_pocket
+local set_personal_pocket = pocket_dimensions.set_personal_pocket
+local set_owner = pocket_dimensions.set_owner
+local teleport_player_to_pocket = pocket_dimensions.teleport_player_to_pocket
+local return_player_to_origin = pocket_dimensions.return_player_to_origin
 
-local mapgen_chunksize = tonumber(minetest.get_mapgen_setting("chunksize"))
-local mapblock_size = mapgen_chunksize * 16 -- should be 80 in almost all cases, but avoiding hardcoding it for extensibility
-local block_grid_dimension = math.floor(61840 / mapblock_size) -- should be 773
-local min_coordinate = -30912
-
-local layer_elevation = tonumber(minetest.settings:get("pocket_dimensions_altitude")) or 30000
-layer_elevation = math.floor(layer_elevation / mapblock_size) * mapblock_size - 32 -- round to mapblock boundary
+local pocket_size = pocket_dimensions.pocket_size
 
 local personal_pockets_chat_command = minetest.settings:get_bool("pocket_dimensions_personal_pockets_chat_command", false)
 local personal_pockets_key = minetest.settings:get_bool("pocket_dimensions_personal_pockets_key", false)
@@ -50,155 +58,6 @@ if mcl_core_modpath then
 end
 
 
--- pocket data tables have the following properties:
--- pending = true -- pocket is being initialized, don't teleport there just yet
--- destination = a vector relative to the pocket's minp that is where new arrivals teleport tonumber
--- name = a name for the pocket.
--- owner = if set, this pocket is "owned" by this particular player.
--- protected = if true, this pocket is protected and only the owner can modify its contents
--- minp = the lower corner of the pocket's region
-
-local pockets_by_hash = {}
-local pockets_by_name = {}
-local player_origin = {}
-local pockets_deleted = {} -- record deleted pockets for possible later undeletion, indexed by hash
-local personal_pockets = {} -- to be filled out if personal pockets are enabled
-
-local protected_areas = AreaStore()
-
--------------------------------------------------------------------------------------
--- protection override
-local old_is_protected = minetest.is_protected
-function minetest.is_protected(pos, name)
-	if minetest.check_player_privs(name, "protection_bypass") then
-		return false
-	end
-	local protection = protected_areas:get_areas_for_pos(pos, false, true)
-	for _, area in pairs(protection) do
-		if area.data ~= name then
-			return true
-		end
-	end
-	return old_is_protected(pos, name)
-end
-
---------------------------------------------------------------------------------------
--- Loading and saving data
-local filename = minetest.get_worldpath() .. "/pocket_dimensions_data.lua"
-
-local load_data = function()
-	local f, e = loadfile(filename)
-	if f then
-		local data = f()
-		pockets_by_hash = data.pockets_by_hash
-		pockets_by_name = {} -- to be filled from pockets_by_hash
-		player_origin = data.player_origin
-		pockets_deleted = data.pockets_deleted
-		if personal_pockets_enabled then
-			for hash, pocket_data in pairs(pockets_by_hash) do
-				if pocket_data.personal then
-					personal_pockets[pocket_data.personal] = pocket_data
-				end
-			end
-		end
-	else
-		return
-	end
-	
-	-- validate and add saved protected areas
-	for hash, pocket_data in pairs(pockets_by_hash) do
-		if hash ~= minetest.hash_node_position(pocket_data.minp) then
-			minetest.log("error", "[pocket_dimensions] Hash mismatch for " .. tostring(hash) .. ", " .. dump(pocket_data))
-			pocket_data.minp = minetest.get_position_from_hash(hash)
-		end
-		pockets_by_name[string.lower(pocket_data.name)] = pocket_data		
-		if pocket_data.protected then
-			protected_areas:insert_area(pocket_data.minp, vector.add(pocket_data.minp, mapblock_size), pocket_data.owner)
-		end
-	end
-end
-
-local save_data = function()
-	local data = {}
-	data.pockets_by_hash = pockets_by_hash
-	data.player_origin = player_origin
-	data.pockets_deleted = pockets_deleted
-	local file, e = io.open(filename, "w");
-	if not file then
-		return error(e);
-	end
-	file:write(minetest.serialize(data))
-	file:close()
-end
-
-load_data()
-----------------------------------------------------------------------------------------
-
--- check if players have got out of pocket dimensions by other means and clear their origin locations
-local since_last_check = 0
-minetest.register_globalstep(function(dtime)
-	since_last_check = since_last_check + dtime
-	if since_last_check > 10 then
-		for name, _ in pairs(player_origin) do
-			local pos = minetest.get_player_by_name(name):get_pos()
-			if pos.y < layer_elevation or pos.y > layer_elevation + mapblock_size then
-				player_origin[name] = nil -- somehow, player escaped the pocket dimension layer
-				since_last_check = 0 -- note that we changed data
-			end
-		end
-		if since_last_check == 0 then
-			save_data()
-			return
-		end
-		since_last_check = 0
-	end
-end)
-
--- returns a place to put players if they have no origin recorded
-local get_fallback_origin = function()
-	local spawnpoint = minetest.setting_get_pos("static_spawnpoint")
-	if not spawnpoint then
-		local x = math.random()*1000 - 500
-		local z = math.random()*1000 - 500
-		local y =minetest.get_spawn_level(x,z)
-		spawnpoint = {x=x,y=y,z=z}
-	end
-end
-
-------------------------------------------------------------------------------------------
--- Teleport effects
-
-local particle_node_pos_spread = vector.new(0.5,0.5,0.5)
-local particle_user_pos_spread = vector.new(0.5,1.5,0.5)
-local particle_speed_spread = vector.new(0.1,0.1,0.1)
-local particle_poof = function(pos)
-	minetest.add_particlespawner({
-		amount = 100,
-		time = 0.1,
-		minpos = vector.subtract(pos, particle_node_pos_spread),
-		maxpos = vector.add(pos, particle_user_pos_spread),
-		minvel = particle_speed_spread,
-		maxvel = particle_speed_spread,
-		minacc = {x=0, y=0, z=0},
-		maxacc = {x=0, y=0, z=0},
-		minexptime = 0.1,
-		maxexptime = 0.5,
-		minsize = 1,
-		maxsize = 1,
-		collisiondetection = false,
-		vertical = false,
-		texture = "pocket_dimensions_spark.png",
-	})		
-end
-local teleport_player = function(player, dest)
-	local source_pos = player:get_pos()
-	particle_poof(source_pos)
-	minetest.sound_play({name="pocket_dimensions_teleport_from"}, {pos = source_pos}, true)
-	player:set_pos(dest)
-	particle_poof(dest)
-	minetest.sound_play({name="pocket_dimensions_teleport_to"}, {pos = dest}, true)
-end
-
 -----------------------------------------------------------------
 -- Border materials
 
@@ -220,24 +79,10 @@ local get_border_def = function(override)
 		can_dig = function(pos, player) return false end,
 		on_blast = function(pos, intensity) return false end,
         on_punch = function(pos, node, clicker, pointed_thing)
-			local clicker_pos = clicker:get_pos()
-			if vector.distance(pos, clicker_pos) > 2 then
+			if vector.distance(pos, clicker:get_pos()) > 2 then
 				return
 			end
-			local name = clicker:get_player_name()
-			local origin = player_origin[name]
-			if origin then
-				teleport_player(clicker, origin)
-				player_origin[name] = nil
-				save_data()
-				return
-			end
-			-- If the player's lost their origin data somehow, dump them somewhere using the spawn system to find an adequate place.
-			local spawnpoint = get_fallback_origin()
-			minetest.log("error", "[pocket_dimensions] Somehow "..name.." was at "..minetest.pos_to_string(clicker:get_pos())..
-				" inside a pocket dimension but they had no origin point recorded when they tried to leave. Sending them to "..
-				minetest.pos_to_string(spawnpoint).." as a fallback.")
-			teleport_player(clicker, spawnpoint)
+			return_player_to_origin(clicker:get_player_name())
 		end,
 		on_construct = function(pos)
 			-- if somehow a player gets ahold of one of these, ensure they can't place it anywhere.
@@ -275,15 +120,14 @@ minetest.register_node("pocket_dimensions:border_gray", get_border_def({
 local c_border_gray = minetest.get_content_id("pocket_dimensions:border_gray")
 
 ---------------------------------------------------------------
--- Pocket creation
+-- Pocket mapgens
 
-local spread_magnitude = mapblock_size
 local scale_magnitude = 5
 
 local perlin_params = {
     offset = 0,
     scale = scale_magnitude,
-    spread = {x = spread_magnitude, y = spread_magnitude, z = spread_magnitude},
+    spread = {x = pocket_size, y = pocket_size, z = pocket_size},
     seed = 577,
     octaves = 5,
     persist = 0.63,
@@ -297,16 +141,13 @@ local perlin_noise = PerlinNoise(perlin_params)
 -- is world-seeded. Nobody will ever notice.
 local terrain_map = PerlinNoiseMap(
 	perlin_params,
-	{x=mapblock_size, y=mapblock_size, z=mapblock_size}
+	{x=pocket_size, y=pocket_size, z=pocket_size}
 )
 
 -- Once the map block for the new pocket dimension is loaded, this initializes its node layout and finds a default spot for arrivals to teleport to
-local emerge_grassy_callback = function(blockpos, action, calls_remaining, pocket_data)
-	if pocket_data.pending ~= true then
-		return
-	end
+local grassy_mapgen = function(pocket_data)
 	local minp = pocket_data.minp
-	local maxp = vector.add(minp, mapblock_size)
+	local maxp = vector.add(minp, pocket_size)
 	local vm = minetest.get_voxel_manip(minp, maxp)
 	local emin, emax = vm:get_emerged_area()
 	local data = vm:get_data()
@@ -315,7 +156,7 @@ local emerge_grassy_callback = function(blockpos, action, calls_remaining, pocke
 	local terrain_values = terrain_map:get_2d_map(minp)
 	
 	-- Default is down on the floor of the border walls, in case default mod isn't installed and no landscape is created
-	local middlep = {x=minp.x + math.floor(mapblock_size/2), y=2, z=minp.z + math.floor(mapblock_size/2)}
+	local middlep = {x=minp.x + math.floor(pocket_size/2), y=2, z=minp.z + math.floor(pocket_size/2)}
 
 	local tree_spots = {}
 	for vi, x, y, z in area:iterp_xyz(minp, maxp) do
@@ -334,7 +175,7 @@ local emerge_grassy_callback = function(blockpos, action, calls_remaining, pocke
 					end
 				end
 				if middlep.x == x and middlep.z == z then
-					middlep.y = math.max(y + 1 - minp.y, mapblock_size/2) -- surface of the ground or water in the center of the block
+					middlep.y = math.max(y + 1, minp.y + pocket_size/2) -- surface of the ground or water in the center of the block
 				end
 			elseif y == terrain_level - 1 then
 				if below_water then
@@ -363,21 +204,14 @@ local emerge_grassy_callback = function(blockpos, action, calls_remaining, pocke
 		end
 	end
 	
-	middlep.x = math.floor(mapblock_size/2)
-	middlep.z = math.floor(mapblock_size/2)
-	
-	pocket_data.pending = nil
-	pocket_data.destination = middlep
-	save_data()
-	minetest.log("action", "[pocket_dimensions] Finished initializing terrain map for pocket dimension " .. pocket_data.name)
+	return middlep
 end
 
-local emerge_cave_callback = function(blockpos, action, calls_remaining, pocket_data)
-	if pocket_data.pending ~= true then
-		return
-	end
+register_pocket_type("grassy", grassy_mapgen)
+
+local cave_mapgen = function(pocket_data)
 	local minp = pocket_data.minp
-	local maxp = vector.add(minp, mapblock_size)
+	local maxp = vector.add(minp, pocket_size)
 	local vm = minetest.get_voxel_manip(minp, maxp)
 	local emin, emax = vm:get_emerged_area()
 	local data = vm:get_data()
@@ -385,7 +219,7 @@ local emerge_cave_callback = function(blockpos, action, calls_remaining, pocket_
 	local terrain_values = terrain_map:get_3d_map(minp)
 	
 	local nearest_to_center = vector.add(minp, 2) -- start off down in the corner
-	local center = vector.add(minp, math.floor(mapblock_size/2))
+	local center = vector.add(minp, math.floor(pocket_size/2))
 	for vi, x, y, z in area:iterp_xyz(minp, maxp) do
 		if x == minp.x or x == maxp.x or y == minp.y or y == maxp.y or z == minp.z or z == maxp.z then
 			data[vi] = c_border_gray
@@ -411,76 +245,10 @@ local emerge_cave_callback = function(blockpos, action, calls_remaining, pocket_
 	end
 	nearest_to_center.y = nearest_to_center.y + 2
 	
-	pocket_data.pending = nil
-	pocket_data.destination = vector.subtract(nearest_to_center, minp)
-	save_data()
-	minetest.log("action", "[pocket_dimensions] Finished initializing map for pocket dimension " .. pocket_data.name)
+	return nearest_to_center
 end
 
-
-local create_new_pocket = function(pocket_name, player_name, pocket_data_override)
-	pocket_data_override = pocket_data_override or {}
-	pocket_data_override.type = pocket_data_override.type or "grassy"
-	if pocket_name == nil or pocket_name == "" then
-		if player_name then
-			minetest.chat_send_player(player_name, S("Please provide a name for the pocket dimension"))
-		end
-		return
-	end
-
-	if pockets_by_name[string.lower(pocket_name)] then
-		if player_name then
-			minetest.chat_send_player(player_name, S("The name @1 is already in use.", pocket_name))
-		end
-		return
-	end
-
-	local count = 0
-	while count < 100 do
-		local x = math.random(0, block_grid_dimension) * mapblock_size + min_coordinate
-		local z = math.random(0, block_grid_dimension) * mapblock_size + min_coordinate
-		local pos = {x=x, y=layer_elevation, z=z}
-		local hash = minetest.hash_node_position(pos)
-		if pockets_by_hash[hash] == nil and pockets_deleted[hash] == nil then
-			local pocket_data = {pending=true, minp=pos, name=pocket_name}
-			pockets_by_hash[hash] = pocket_data
-			pockets_by_name[string.lower(pocket_name)] = pocket_data
-			for key, value in pairs(pocket_data_override) do
-				pocket_data[key] = value
-			end
-			if pocket_data.type == "grassy" then
-				minetest.emerge_area(pos, pos, emerge_grassy_callback, pocket_data)
-			else
-				minetest.emerge_area(pos, pos, emerge_cave_callback, pocket_data)
-			end
-			save_data()
-			minetest.chat_send_player(player_name, S("Pocket dimension @1 created", pocket_name))
-			minetest.log("action", "[pocket_dimensions] " .. player_name .. " Created a pocket dimension named " .. pocket_name .. " at " .. minetest.pos_to_string(pos))
-			return pocket_data
-		end
-	end
-	
-	if player_name then
-		minetest.chat_send_player(player_name, S("Failed to find a new location for this pocket dimension."))
-	end
-	return nil
-end
-
-local teleport_player_to_pocket = function(player_name, pocket_name)
-	local pocket_data = pockets_by_name[string.lower(pocket_name)]
-	if pocket_data == nil or pocket_data.pending then
-		return false
-	end
-
-	local dest = vector.add(pocket_data.minp, pocket_data.destination)
-	local player = minetest.get_player_by_name(player_name)
-	if not player_origin[player_name] then
-		player_origin[player_name] = player:get_pos()
-		save_data()
-	end
-	teleport_player(player, dest)
-	return true
-end
+register_pocket_type("cave", cave_mapgen)
 
 
 -------------------------------------------------------------------------------
@@ -495,7 +263,7 @@ local get_select_formspec = function(player_name)
 		.."label[0.5,0.6;"..S("Link to pocket dimension:").."]dropdown[1,1;4,0.5;pocket_select;"
 	}
 	local names = {}
-	for name, def in pairs(pockets_by_name) do
+	for _, def in pairs(get_all_pockets()) do
 		table.insert(names, minetest.formspec_escape(def.name))
 	end
 	table.sort(names)
@@ -530,7 +298,7 @@ minetest.register_node("pocket_dimensions:portal", {
 		local meta = minetest.get_meta(pos)
 		local pocket_dest = minetest.string_to_pos(meta:get_string("pocket_dest"))
 		if pocket_dest then
-			local pocket_data = pockets_by_hash[minetest.hash_node_position(pocket_dest)]
+			local pocket_data = pocket_containing_pos(pocket_dest)
 			if pocket_data then
 				teleport_player_to_pocket(player_name, pocket_data.name)
 				return
@@ -559,7 +327,7 @@ minetest.register_on_player_receive_fields(function(player, formname, fields)
 	if fields.pocket_select then
 		for _, name in pairs(state.names) do
 			if fields.pocket_select == name then
-				local pocket_data = pockets_by_name[string.lower(name)] -- TODO: minetest.formspec_escape may screw up this lookup, do something different
+				local pocket_data = get_pocket(name) -- TODO: minetest.formspec_escape may screw up this lookup, do something different
 				if pocket_data then
 					local meta = minetest.get_meta(state.pos)
 					meta:set_string("pocket_dest", minetest.pos_to_string(pocket_data.minp))
@@ -575,18 +343,6 @@ end)
 -------------------------------------------------------------------------------
 -- Admin commands
 
-local update_protected = function(pocket_data)
-	-- clear any existing protection
-	protected = protected_areas:get_areas_for_pos(pocket_data.minp)
-	for id, _ in pairs(protected) do
-		protected_areas:remove_area(id)
-	end
-	-- add protection if warranted
-	if pocket_data.protected then
-		protected_areas:insert_area(pocket_data.minp, vector.add(pocket_data.minp, mapblock_size), pocket_data.owner)
-	end
-end
-
 local formspec_state = {}
 local get_admin_formspec = function(player_name)
 	formspec_state[player_name] = formspec_state[player_name] or {row_index=1}
@@ -601,32 +357,36 @@ local get_admin_formspec = function(player_name)
 	formspec[#formspec+1] = "tablecolumns[text,tooltip="..S("Name")
 		..";text,tooltip="..S("Owner")
 		..";text,tooltip="..S("Protected")
-	if personal_pockets then
+	if personal_pockets_enabled then
 		formspec[#formspec+1] = ";text,tooltip="..S("Personal")
 	end
 	formspec[#formspec+1] = "]table[0.5,1.0;7,5.75;pocket_table;"
 	
-	local table_to_use = pockets_by_name
-	local delete_label = S("Delete")
-	local undelete_toggle = "false"
+	local table_to_use
+	local delete_label
+	local undelete_toggle
 	if state.undelete == "true" then
-		table_to_use = pockets_deleted
+		table_to_use = get_deleted_pockets()
 		delete_label = S("Undelete")
 		undelete_toggle = "true"
+	else
+		table_to_use = get_all_pockets()
+		delete_label = S("Delete")
+		undelete_toggle = "false"
 	end
 	
 	local i = 0
-	for _, dimension_data in pairs(table_to_use) do
+	for _, pocket_data in pairs(table_to_use) do
 		i = i + 1
 		if i == state.row_index then
-			state.selected_data = dimension_data
+			state.selected_data = pocket_data
 		end
-		local owner = dimension_data.owner or "<none>"
-		formspec[#formspec+1] = minetest.formspec_escape(dimension_data.name)
+		local owner = pocket_data.owner or "<none>"
+		formspec[#formspec+1] = minetest.formspec_escape(pocket_data.name)
 			..",".. minetest.formspec_escape(owner)
-			..","..tostring(dimension_data.protected or "false")
-		if personal_pockets then
-			formspec[#formspec+1] = ","..tostring(dimension_data.personal)
+			..","..tostring(pocket_data.protected or "false")
+		if personal_pockets_enabled then
+			formspec[#formspec+1] = ","..tostring(pocket_data.personal)
 		end
 		formspec[#formspec+1] = ","
 	end
@@ -689,13 +449,9 @@ minetest.register_on_player_receive_fields(function(player, formname, fields)
 	end
 
 	if fields.rename and fields.pocket_name ~= pocket_data.name then
-		if pockets_by_name[string.lower(fields.pocket_name)] then
+		if not rename_pocket(pocket_data.name, fields.pocket_name)then
 			minetest.chat_send_player(player_name, S("A pocket dimension with that name already exists"))
 		else
-			pockets_by_name[string.lower(fields.pocket_name)] = pocket_data
-			pockets_by_name[string.lower(pocket_data.name)] = nil
-			pocket_data.name = fields.pocket_name
-			save_data()
 			refresh=true
 		end
 	end
@@ -706,53 +462,27 @@ minetest.register_on_player_receive_fields(function(player, formname, fields)
 	end
 	
 	if fields.create then
-		if create_new_pocket(fields.pocket_name, player_name, {type=fields.create_type}) then
+		local success, message = create_pocket(fields.pocket_name, {type=fields.create_type})
+		if success then
 			refresh = true
 		end
+		minetest.chat_send_player(player_name, message)
 	end
 	
 	if fields.delete then
-		local pocket_hash = minetest.hash_node_position(pocket_data.minp)
 		if state.undelete == "true" then
-			if pockets_by_name[string.lower(pocket_data.name)] then
-				minetest.chat_send_player(player_name, S("Cannot undelete, a pocket dimension with that name already exists"))
-			else
-				pockets_deleted[pocket_hash] = nil
-				pockets_by_name[string.lower(pocket_data.name)] = pocket_data
-				pockets_by_hash[pocket_hash] = pocket_data
-				if pocket_data.personal and personal_pockets and not personal_pockets[pocket_data.personal] then
-					-- it was a personal pocket and the player hasn't created a new one, so restore that association
-					personal_pockets[pocket_data.personal] = pocket_data
-				end
-				minetest.chat_send_player(player_name, S("Undeleted pocket dimension @1 at @2. Note that this doesn't affect the map, just moves this pocket dimension out of regular access and into the deleted list.", pocket_data.name, minetest.pos_to_string(pocket_data.minp)))
-				minetest.log("action", "[pocket_dimensions] " .. player_name .. " undeleted the pocket dimension " .. pocket_data.name .. " at " .. minetest.pos_to_string(pocket_data.minp))
-			end				
+			local success, message = undelete_pocket(pocket_data)
+			minetest.chat_send_player(player_name, message)
 		else
-			pockets_deleted[pocket_hash] = pocket_data
-			pockets_by_name[string.lower(pocket_data.name)] = nil
-			pockets_by_hash[pocket_hash] = nil
-			if personal_pockets then
-				for name, personal_pocket_data in pairs(personal_pockets) do
-					if pocket_data == personal_pocket_data then
-						-- we're deleting a personal pocket, remove its record
-						personal_pockets[name] = nil
-						break
-					end
-				end
-			end
-			minetest.chat_send_player(player_name, S("Deleted pocket dimension @1 at @2. Note that this doesn't affect the map, just moves this pocket dimension out of regular access and into the deleted list.", pocket_data.name, minetest.pos_to_string(pocket_data.minp)))
-			minetest.log("action", "[pocket_dimensions] " .. player_name .. " deleted the pocket dimension " .. pocket_data.name .. " at " .. minetest.pos_to_string(pocket_data.minp))
+			local success, message = delete_pocket(pocket_data)
+			minetest.chat_send_player(player_name, message)
 		end
-		save_data()
 		state.row_index = 1
 		refresh = true
 	end
 	
 	if fields.protect then
-		pocket_data.protected = not pocket_data.protected
-		update_protected(pocket_data)
-		minetest.log("action", "[pocket_dimensions] " .. player_name .. " set protection ownership of pocket dimension " .. pocket_data.name .. " to " .. tostring(pocket_data.protected))
-		save_data()
+		set_protection(pocket_data, not pocket_data.protected)
 		refresh = true
 	end
 	
@@ -762,11 +492,10 @@ minetest.register_on_player_receive_fields(function(player, formname, fields)
 	
 	if fields.set_owner and pocket_data.owner ~= fields.owner then
 		if fields.owner == "" then
-			pocket_data.owner = nil
+			set_owner(pocket_data, nil)
 		else
-			pocket_data.owner = fields.owner
+			set_owner(pocket_data, fields.owner)
 		end
-		save_data()
 		refresh = true
 	end
 	
@@ -775,8 +504,8 @@ minetest.register_on_player_receive_fields(function(player, formname, fields)
 	end
 end)
 
--------------------------------------------------------------------------------------------------------
--- Player commands
+--------------------------------------------------------------------------------------------------------
+-- Personal pockets
 
 if personal_pockets_enabled then
 	function teleport_to_pending(pocket_name, player_name, count)
@@ -792,7 +521,7 @@ if personal_pockets_enabled then
 	end
 	
 	local teleport_to_personal_pocket = function(player_name)
-		local pocket_data = personal_pockets[player_name]
+		local pocket_data = get_personal_pocket(player_name)
 		if pocket_data then
 			teleport_player_to_pocket(player_name, pocket_data.name)
 			return
@@ -800,21 +529,24 @@ if personal_pockets_enabled then
 
 		-- Find an unused default name
 		local new_pocket_name = player_name
-		if pockets_by_name[string.lower(new_pocket_name)] then
+		if get_pocket(new_pocket_name) then
 			local count = 1
 			local new_pocket_name_prefix = new_pocket_name
 			new_pocket_name = new_pocket_name_prefix .. " " .. count
-			while pockets_by_name[string.lower(new_pocket_name)] do
+			while get_pocket(new_pocket_name) do
 				count = count + 1
 				new_pocket_name = new_pocket_name_prefix .. " " .. count
-			end		
+			end
 		end
 
-		pocket_data = create_new_pocket(new_pocket_name, player_name, {protected=true, owner=player_name, personal=player_name, type="grassy"})
-		if pocket_data then
-			personal_pockets[player_name] = pocket_data
+		local success, message = create_pocket(new_pocket_name, {type="grassy"})
+		if success then
+			pocket_data = get_pocket(new_pocket_name)
+			set_personal_pocket(pocket_data, player_name)
+			set_protection(pocket_data, true)
 			teleport_to_pending(new_pocket_name, player_name, 1)
 		end
+		minetest.chat_send_player(player_name, message)
 	end
 
 	if personal_pockets_chat_command then
@@ -934,30 +666,26 @@ if personal_pockets_enabled then
 	end	
 end
 
+-------------------------------------------------------------------------------------------------------
+-- Player commands
+
 minetest.register_chatcommand("pocket_entry", {
 	params = "",
 --	privs = {}, -- TODO a new privilege here?
 	description = S("Set the entry point of the pocket dimension you're in to where you're standing."),
 	func = function(player_name, param)
 		local pos = minetest.get_player_by_name(player_name):get_pos()
-		-- Find the pocket the player's in
-		for hash, pocket_data in pairs(pockets_by_hash) do
-			local pos_diff = vector.subtract(pos, pocket_data.minp)
-			if pos_diff.y >=0 and pos_diff.y <= mapblock_size and -- check y first to eliminate possibility player's not in a pocket dimension at all
-				pos_diff.x >=0 and pos_diff.x <= mapblock_size and
-				pos_diff.z >=0 and pos_diff.z <= mapblock_size then
-				
-				if player_name == pocket_data.owner or minetest.check_player_privs(player_name, "server") then
-					pocket_data.destination = vector.round(pos_diff)
-					save_data()
-					minetest.chat_send_player(player_name, S("The entry point for pocket dimension @1 has been updated", pocket_data.name))
-				else
-					minetest.chat_send_player(player_name, S("You don't have permission to change the entry point of pocket dimension @1.", pocket_data.name))
-				end				
-				return
-			end
+		local pocket_data = pocket_containing_pos(pos)
+		if not pocket_data then
+			minetest.chat_send_player(player_name, S("You're not inside a pocket dimension right now."))
+			return
 		end
-		minetest.chat_send_player(player_name, S("You're not inside a pocket dimension right now."))
+		if player_name ~= pocket_data.owner and not minetest.check_player_privs(player_name, "server") then
+			minetest.chat_send_player(player_name, S("You don't have permission to change the entry point of pocket dimension @1.", pocket_data.name))
+			return
+		end
+		set_destination(pocket_data, pos)
+		minetest.chat_send_player(player_name, S("The entry point for pocket dimension @1 has been updated", pocket_data.name))
 	end,
 })
 
@@ -971,33 +699,23 @@ minetest.register_chatcommand("pocket_rename", {
 			return
 		end
 		local pos = minetest.get_player_by_name(player_name):get_pos()
-		-- Find the pocket the player's in
-		for hash, pocket_data in pairs(pockets_by_hash) do
-			local pos_diff = vector.subtract(pos, pocket_data.minp)
-			if pos_diff.y >=0 and pos_diff.y <= mapblock_size and -- check y first to eliminate possibility player's not in a pocket dimension at all
-				pos_diff.x >=0 and pos_diff.x <= mapblock_size and
-				pos_diff.z >=0 and pos_diff.z <= mapblock_size then
-				
-				if player_name == pocket_data.owner or minetest.check_player_privs(player_name, "server") then
-					if pockets_by_name[string.lower(param)] then
-						minetest.chat_send_player(player_name, S("A pocket dimension with that name already exists"))
-					else
-						minetest.chat_send_player(player_name, S("The name of pocket dimension @1 has been changed to \"@2\".", pocket_data.name, param))
-						pockets_by_name[string.lower(pocket_data.name)] = nil
-						pockets_by_name[string.lower(param)] = pocket_data
-						pocket_data.name = param
-						save_data()
-					end
-				else
-					minetest.chat_send_player(player_name, S("You don't have permission to change the name of pocket dimension @1.", pocket_data.name))
-				end
-				return
-			end
+		local pocket_data = pocket_containing_pos(pos)
+		if not pocket_data then
+			minetest.chat_send_player(player_name, S("You're not inside a pocket dimension right now."))
+			return
+		end		
+		if player_name ~= pocket_data.owner and not minetest.check_player_privs(player_name, "server") then
+			minetest.chat_send_player(player_name, S("You don't have permission to change the name of pocket dimension @1.", pocket_data.name))
+			return
 		end
-		minetest.chat_send_player(player_name, S("You're not inside a pocket dimension right now."))
+		local oldname = pocket_data.name
+		if rename_pocket(oldname, param) then
+			minetest.chat_send_player(player_name, S("The name of pocket dimension @1 has been changed to \"@2\".", oldname, param))
+		else
+			minetest.chat_send_player(player_name, S("A pocket dimension with that name already exists"))
+		end
 	end,
 })
-
 
 minetest.register_chatcommand("pocket_name", {
 	params = "",
@@ -1005,22 +723,11 @@ minetest.register_chatcommand("pocket_name", {
 	description = S("Finds the name of the pocket dimension you're inside right now."),
 	func = function(player_name, param)
 		local pos = minetest.get_player_by_name(player_name):get_pos()
-		-- Find the pocket the player's in
-		for hash, pocket_data in pairs(pockets_by_hash) do
-			local pos_diff = vector.subtract(pos, pocket_data.minp)
-			if pos_diff.y >=0 and pos_diff.y <= mapblock_size and -- check y first to eliminate possibility player's not in a pocket dimension at all
-				pos_diff.x >=0 and pos_diff.x <= mapblock_size and
-				pos_diff.z >=0 and pos_diff.z <= mapblock_size then
-				
-				minetest.chat_send_player(player_name, S("You're inside pocket dimension \"@1\"", pocket_data.name))
-				return
-			end
+		local pocket_data = pocket_containing_pos(pos)
+		if pocket_data then
+			minetest.chat_send_player(player_name, S("You're inside pocket dimension \"@1\"", pocket_data.name))
+		else
+			minetest.chat_send_player(player_name, S("You're not inside a pocket dimension right now."))
 		end
-		minetest.chat_send_player(player_name, S("You're not inside a pocket dimension right now."))
 	end,
 })
-
-
-
-pocket_dimensions.teleport_player_to_pocket = teleport_player_to_pocket
-
