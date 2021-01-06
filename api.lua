@@ -282,6 +282,13 @@ local mapgens = {}
 pocket_dimensions.register_pocket_type = function(type_name, mapgen_callback)
 	mapgens[type_name] = mapgen_callback
 end
+pocket_dimensions.get_all_pocket_types = function()
+	local ret = {}
+	for name, def in pairs(mapgens) do
+		table.insert(ret, name)
+	end
+	return ret
+end
 
 local emerge_callback = function(blockpos, action, calls_remaining, pocket_data)
 	local mapgen_callback = mapgens[pocket_data.type]
