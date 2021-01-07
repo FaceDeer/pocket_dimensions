@@ -5,6 +5,9 @@ dofile(MP.."/voxelarea_iterator.lua")
 dofile(MP.."/api.lua")
 dofile(MP.."/mapgen.lua")
 
+local default_modpath = minetest.get_modpath("default")
+local mcl_core_modpath = minetest.get_modpath("mcl_core")
+
 -- API
 local get_pocket = pocket_dimensions.get_pocket
 local get_all_pockets = pocket_dimensions.get_all_pockets

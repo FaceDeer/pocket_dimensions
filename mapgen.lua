@@ -1,5 +1,8 @@
 local S = minetest.get_translator(minetest.get_current_modname())
 
+local default_modpath = minetest.get_modpath("default")
+local mcl_core_modpath = minetest.get_modpath("mcl_core")
+
 local pocket_size = pocket_dimensions.pocket_size
 local register_pocket_type = pocket_dimensions.register_pocket_type
 local return_player_to_origin = pocket_dimensions.return_player_to_origin
@@ -12,16 +15,13 @@ local c_stone
 local c_water
 local c_sand
 
-local default_modpath = minetest.get_modpath("default")
 if default_modpath then
 	c_dirt = minetest.get_content_id("default:dirt")
 	c_dirt_with_grass = minetest.get_content_id("default:dirt_with_grass")
 	c_stone = minetest.get_content_id("default:stone")
 	c_water = minetest.get_content_id("default:water_source")
 	c_sand = minetest.get_content_id("default:sand")
-end
-local mcl_core_modpath = minetest.get_modpath("mcl_core")
-if mcl_core_modpath then
+elseif mcl_core_modpath then
 	c_dirt = minetest.get_content_id("mcl_core:dirt")
 	c_dirt_with_grass = minetest.get_content_id("mcl_core:dirt_with_grass")
 	c_stone = minetest.get_content_id("mcl_core:stone")
@@ -37,14 +37,8 @@ local get_border_def = function(override)
 	local def = {
 		description = S("Boundary of a pocket dimension"),
 		groups = {not_in_creative_inventory = 1},
-		drawtype = "normal",  -- See "Node drawtypes"
-		paramtype = "light",  -- See "Nodes"
-		paramtype2 = "none",  -- See "Nodes"
 		is_ground_content = false, -- If false, the cave generator and dungeon generator will not carve through this node.
-		walkable = true,  -- If true, objects collide with node
-		pointable = true,  -- If true, can be pointed at
 		diggable = false,  -- If false, can never be dug
-		node_box = {type="regular"},  -- See "Node boxes"
 		sounds = {
             footstep = {name = "pocket_dimensions_footstep", gain = 0.25},
 		},
