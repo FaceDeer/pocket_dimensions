@@ -36,7 +36,7 @@ end
 local get_border_def = function(override)
 	local def = {
 		description = S("Boundary of a pocket dimension"),
-		groups = {not_in_creative_inventory = 1},
+		groups = {not_in_creative_inventory = 1, dimensional_boundary = 1},
 		is_ground_content = false, -- If false, the cave generator and dungeon generator will not carve through this node.
 		diggable = false,  -- If false, can never be dug
 		sounds = {
@@ -216,3 +216,86 @@ end
 
 register_pocket_type("cave", cave_mapgen)
 
+
+-----------------------------------------------------------------------------------------------------
+
+minetest.register_node("pocket_dimensions:border_collapsing", get_border_def({
+	light_source = minetest.LIGHT_MAX,
+	paramtype = "light",
+	tiles = {{name="pocket_dimensions_pit_plasma.png",
+	    animation = {
+			type = "vertical_frames",
+			aspect_w = 32,
+			aspect_h = 32,
+			length = 1.0,
+		},
+		tileable_vertical=true,
+		tileable_horizontal=true,
+		align_style="world",
+		scale=2,
+	}},
+	damage_per_second = 100,
+}))
+
+local c_border_collapsing = minetest.get_content_id("pocket_dimensions:border_collapsing")
+
+function collapse_pocket(pocket_data)
+	local collapse = pocket_data.collapse
+	if not collapse then
+		return
+	end
+	local tick = collapse.tick
+	if tick >= pocket_size/2 then
+		-- done
+		minetest.delete_area(pocket_data.minp, vector.add(pocket_data.minp, pocket_size))
+		pocket_dimensions.delete_pocket(pocket_data, true)
+		return
+	end
+	local minp = vector.add(pocket_data.minp, tick)
+	local maxp = vector.add(minp, pocket_size-tick*2)
+	local vm = minetest.get_voxel_manip(minp, maxp)
+	local emin, emax = vm:get_emerged_area()
+	local data = vm:get_data()
+	local area = VoxelArea:new{MinEdge = emin, MaxEdge = emax}
+	for vi, x, y, z in area:iterp_xyz(minp, maxp) do
+		if x == minp.x or x == maxp.x or y == minp.y or y == maxp.y or z == minp.z or z == maxp.z then
+			data[vi] = c_border_collapsing
+		end
+	end
+	vm:set_data(data)
+	vm:write_to_map()
+
+	collapse.tick = tick + 1
+	pocket_dimensions.save_data()
+	minetest.after(collapse.seconds_per_tick, collapse_pocket, pocket_data)
+end
+
+local destroy_pocket_dramatically = function(pocket_data, seconds_per_tick)
+	pocket_data.collapse = {seconds_per_tick = seconds_per_tick, tick = 0}
+	pocket_dimensions.save_data()
+	collapse_pocket(pocket_data)
+end
+
+minetest.register_chatcommand("pocket_destroy", {
+	params = "pocketname",
+	privs = {server=true},
+	description = S("Destroy a named pocket dramatically"),
+	func = function(player_name, param)
+		local pocket_data = pocket_dimensions.get_pocket(param)
+		if not pocket_data then
+			minetest.chat_send_player(player_name, S("Unable to find a pocket dimension with that name."))
+			return
+		end
+		destroy_pocket_dramatically(pocket_data, 10)
+	end
+})
+
+local test_collapse = function()
+	for _, def in pairs(pocket_dimensions.get_all_pockets()) do
+		if def.collapse then
+			collapse_pocket(def)
+		end
+	end
+end
+
+minetest.after(1, test_collapse)

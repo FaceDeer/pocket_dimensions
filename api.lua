@@ -85,6 +85,8 @@ local save_data = function()
 	file:close()
 end
 
+pocket_dimensions.save_data = save_data
+
 load_data()
 
 
@@ -258,12 +260,20 @@ end
 -- returns a place to put players if they have no origin recorded
 local get_fallback_origin = function()
 	local spawnpoint = minetest.setting_get_pos("static_spawnpoint")
-	if not spawnpoint then
+	local count = 0
+	spawnpoint = {}
+	while not spawnpoint.y and count < 20 do
 		local x = math.random()*1000 - 500
 		local z = math.random()*1000 - 500
-		local y =minetest.get_spawn_level(x,z)
+		local y = minetest.get_spawn_level(x,z) -- returns nil when unsuitable
 		spawnpoint = {x=x,y=y,z=z}
+		count = count + 1
 	end
+	if not spawnpoint.y then
+		minetest.log("error", "[pocket_dimensions] Unable to find a fallback origin point to teleport the player, to sending them to 0,0,0")
+		return {x=0,y=0,z=0}
+	end
+	return spawnpoint
 end
 
 pocket_dimensions.return_player_to_origin = function(player_name)
@@ -277,10 +287,10 @@ pocket_dimensions.return_player_to_origin = function(player_name)
 	end
 	-- If the player's lost their origin data somehow, dump them somewhere using the spawn system to find an adequate place.
 	local spawnpoint = get_fallback_origin()
-	minetest.log("error", "[pocket_dimensions] Somehow "..name.." was at "..minetest.pos_to_string(clicker:get_pos())..
+	minetest.log("error", "[pocket_dimensions] Somehow "..player_name.." was at "..minetest.pos_to_string(player:get_pos())..
 		" inside a pocket dimension but they had no origin point recorded when they tried to leave. Sending them to "..
 		minetest.pos_to_string(spawnpoint).." as a fallback.")
-	teleport_player(clicker, spawnpoint)
+	teleport_player(player, spawnpoint)
 end
 
 -------------------------------------------------------------------------------------
@@ -341,10 +351,16 @@ pocket_dimensions.create_pocket = function(pocket_name, pocket_data_override)
 	return false, S("Failed to find a new location for this pocket dimension.")
 end
 
-pocket_dimensions.delete_pocket = function(pocket_data)
+pocket_dimensions.delete_pocket = function(pocket_data, permanent)
 	local pocket_name_lower = string.lower(pocket_data.name)
 	local pocket_hash = minetest.hash_node_position(pocket_data.minp)
-	pockets_deleted[pocket_hash] = pocket_data
+	if not permanent then
+		pockets_deleted[pocket_hash] = pocket_data
+	else
+		-- you can permanently delete a pocket that's already been deleted
+		-- this removes it from the undelete cache
+		pockets_deleted[pocket_hash] = nil
+	end	
 	pockets_by_name[pocket_name_lower] = nil
 	for name, personal_pocket_data in pairs(personal_pockets) do
 		if pocket_data == personal_pocket_data then
@@ -355,8 +371,10 @@ pocket_dimensions.delete_pocket = function(pocket_data)
 	end
 	save_data()
 	
-	minetest.log("action", "[pocket_dimensions] Deleted the pocket dimension " .. pocket_data.name .. " at " .. minetest.pos_to_string(pocket_data.minp))
-	return true, S("Deleted pocket dimension @1 at @2. Note that this doesn't affect the map, just moves this pocket dimension out of regular access and into the deleted list.", pocket_data.name, minetest.pos_to_string(pocket_data.minp))
+	local permanency_log = function(permanent) if permanent then return " Deletion was permanent." else return "" end end
+	local permanency_message = function(permanent) if permanent then return " " .. S("Deletion was permanent.") else return "" end end
+	minetest.log("action", "[pocket_dimensions] Deleted the pocket dimension " .. pocket_data.name .. " at " .. minetest.pos_to_string(pocket_data.minp).. "." .. permanency_log())
+	return true, S("Deleted pocket dimension @1 at @2. Note that this doesn't affect the map.", pocket_data.name, minetest.pos_to_string(pocket_data.minp)) .. permanency_message()
 end
 
 pocket_dimensions.undelete_pocket = function(pocket_data)
