@@ -1,5 +1,13 @@
 local S = minetest.get_translator(minetest.get_current_modname())
 
+local personal_pockets_chat_command = minetest.settings:get_bool("pocket_dimensions_personal_pockets_chat_command", false)
+local personal_pockets_key = minetest.settings:get_bool("pocket_dimensions_personal_pockets_key", false)
+local personal_pockets_key_uses = tonumber(minetest.settings:get("pocket_dimensions_personal_pockets_key_uses")) or 0
+local personal_pockets_spawn = minetest.settings:get_bool("pocket_dimensions_personal_pockets_spawn", false)
+local personal_pockets_respawn = minetest.settings:get_bool("pocket_dimensions_personal_pockets_respawn", false) and not minetest.settings:get_bool("engine_spawn")
+local personal_pockets_enabled = personal_pockets_chat_command or personal_pockets_key or personal_pockets_spawn or personal_pockets_respawn
+
+
 -- pocket data tables have the following properties:
 -- pending = true -- pocket is being initialized, don't teleport there just yet
 -- destination = a vector relative to the pocket's minp that is where new arrivals teleport tonumber
