@@ -394,6 +394,12 @@ if personal_pockets_enabled then
 				recipe = {
 				{"default:mese_crystal","default:skeleton_key"}
 			}})
+		elseif mcl_core_modpath then
+			minetest.register_craft({
+				output = "pocket_dimensions:personal_key",
+				recipe = {
+				{"mesecons_torch:redstoneblock","group:compass"}
+			}})		
 		end
 	end
 
