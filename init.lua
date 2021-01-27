@@ -26,11 +26,39 @@ local teleport_player_to_pocket = pocket_dimensions.teleport_player_to_pocket
 
 local pocket_size = pocket_dimensions.pocket_size
 
-local personal_pockets_chat_command = minetest.settings:get_bool("pocket_dimensions_personal_pockets_chat_command", false)
-local personal_pockets_key = minetest.settings:get_bool("pocket_dimensions_personal_pockets_key", false)
-local personal_pockets_key_uses = tonumber(minetest.settings:get("pocket_dimensions_personal_pockets_key_uses")) or 0
-local personal_pockets_spawn = minetest.settings:get_bool("pocket_dimensions_personal_pockets_spawn", false)
-local personal_pockets_respawn = minetest.settings:get_bool("pocket_dimensions_personal_pockets_respawn", false) and not minetest.settings:get_bool("engine_spawn")
+-- Attempt to load values, apply no default
+local personal_pockets_chat_command = minetest.settings:get_bool("pocket_dimensions_personal_pockets_chat_command")
+local personal_pockets_key = minetest.settings:get_bool("pocket_dimensions_personal_pockets_key")
+local personal_pockets_key_uses = tonumber(minetest.settings:get("pocket_dimensions_personal_pockets_key_uses"))
+local personal_pockets_spawn = minetest.settings:get_bool("pocket_dimensions_personal_pockets_spawn")
+local personal_pockets_respawn = minetest.settings:get_bool("pocket_dimensions_personal_pockets_respawn") and not minetest.settings:get_bool("engine_spawn")
+
+-- Verify it's valid, else add it to minetest.conf settings
+if not personal_pockets_chat_command then
+	minetest.settings:set_bool("pocket_dimensions_personal_pockets_chat_command", false)
+	personal_pockets_chat_command = false
+end
+
+if not personal_pockets_key then
+	minetest.settings:set_bool("pocket_dimensions_personal_pockets_key", false)
+	personal_pockets_key = false
+end
+
+if not personal_pockets_key_uses then
+	minetest.settings:set_int("pocket_dimensions_personal_pockets_key_uses", 0)
+	personal_pockets_key_uses = 0
+end
+
+if not personal_pockets_spawn then
+	minetest.settings:set_bool("pocket_dimensions_personal_pockets_spawn", false)
+	personal_pockets_spawn = false
+end
+
+if not personal_pockets_respawn then
+	minetest.settings:set_bool("pocket_dimensions_personal_pockets_respawn", false)
+	personal_pockets_respawn = false
+end
+-- Done verification
 
 local personal_pockets_enabled = personal_pockets_chat_command or personal_pockets_key or personal_pockets_spawn or personal_pockets_respawn
 
