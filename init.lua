@@ -45,7 +45,7 @@ if not personal_pockets_key then
 end
 
 if not personal_pockets_key_uses then
-	minetest.settings:set_int("pocket_dimensions_personal_pockets_key_uses", 0)
+	minetest.settings:set("pocket_dimensions_personal_pockets_key_uses", 0)
 	personal_pockets_key_uses = 0
 end
 
