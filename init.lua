@@ -571,6 +571,45 @@ minetest.register_chatcommand("pocket_entry", {
 	end,
 })
 
+minetest.register_chatcommand("pocket_protect", {
+	params = "[true|false]",
+--	privs = {}, -- TODO a new privilege here?
+	description = S("Set whether the pocket dimension you're in is protected from changes by non-owners."),
+	func = function(player_name, param)
+		local pos = minetest.get_player_by_name(player_name):get_pos()
+		local pocket_data = pocket_containing_pos(pos)
+		if not pocket_data then
+			minetest.chat_send_player(player_name, S("You're not inside a pocket dimension right now."))
+			return
+		end
+		if player_name ~= pocket_data.owner and not minetest.check_player_privs(player_name, "server") then
+			minetest.chat_send_player(player_name, S("You don't have permission to change the protection of pocket dimension @1.", pocket_data.name))
+			return
+		end
+		
+		local new_state
+		local param = string.sub(param,1,1)
+		if not param or param == "" then
+			new_state = not pocket_data.protected
+		elseif param == "t" or param == "T" then
+			new_state = true
+		elseif param == "f" or param == "F" then
+			new_state = false
+		else
+			minetest.chat_send_player(player_name, S("Parameter not recognized as 'true' or 'false.'"))
+			return
+		end
+		
+		if new_state then
+			set_protection(pocket_data, true)
+			minetest.chat_send_player(player_name, S("Pocket dimension @1 has been protected", pocket_data.name))
+		else
+			set_protection(pocket_data, false)
+			minetest.chat_send_player(player_name, S("Pocket dimension @1 has been unprotected", pocket_data.name))		
+		end
+	end,
+})
+
 minetest.register_chatcommand("pocket_rename", {
 	params = "pocketname",
 --	privs = {}, -- TODO a new privilege here?
