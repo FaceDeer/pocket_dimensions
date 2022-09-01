@@ -175,6 +175,8 @@ end
 
 register_pocket_type("grassy", grassy_mapgen)
 
+----------------------------------------------------
+
 local cave_mapgen = function(pocket_data)
 	local minp = pocket_data.minp
 	local maxp = vector.add(minp, pocket_size)
@@ -215,6 +217,47 @@ local cave_mapgen = function(pocket_data)
 end
 
 register_pocket_type("cave", cave_mapgen)
+
+-----------------------------------------------------
+
+local desert_mapgen = function(pocket_data)
+	local minp = pocket_data.minp
+	local maxp = vector.add(minp, pocket_size)
+	local vm = minetest.get_voxel_manip(minp, maxp)
+	local emin, emax = vm:get_emerged_area()
+	local data = vm:get_data()
+	local area = VoxelArea:new{MinEdge = emin, MaxEdge = emax}
+	local surface = minp.y + 40
+	local terrain_values = terrain_map:get_2d_map(minp)
+	
+	-- Default is down on the floor of the border walls, in case default mod isn't installed and no landscape is created
+	local middlep = {x=minp.x + math.floor(pocket_size/2), y=2, z=minp.z + math.floor(pocket_size/2)}
+
+	for vi, x, y, z in area:iterp_xyz(minp, maxp) do
+		if x == minp.x or x == maxp.x or y == minp.y or y == maxp.y or z == minp.z or z == maxp.z then
+			data[vi] = c_border_glass
+		elseif default_modpath or mcl_core_modpath then
+			local terrain_level = math.floor(terrain_values[x-minp.x+1][z-minp.z+1] + surface)
+			if y == terrain_level or y == terrain_level - 1 then
+				data[vi] = c_sand
+				if middlep.x == x and middlep.z == z then
+					middlep.y = math.max(y + 1, minp.y + pocket_size/2) -- surface of the ground or water in the center of the block
+				end
+			elseif y <= terrain_level - 2 then
+				data[vi] = c_stone
+			else
+				data[vi] = c_air
+			end
+		end
+	end
+	
+	vm:set_data(data)
+	vm:write_to_map()
+	
+	return middlep
+end
+
+register_pocket_type("desert", desert_mapgen)
 
 
 -----------------------------------------------------------------------------------------------------

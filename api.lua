@@ -194,14 +194,18 @@ end
 
 pocket_dimensions.set_destination = function(pocket_data, destination)
 	local dest = vector.round(destination)
-	assert(dest.x > pocket_data.minp.x and dest.y > pocket_data.minp.y and dest.z > pocket_data.minp.z 
+	if not (dest.x > pocket_data.minp.x and dest.y > pocket_data.minp.y and dest.z > pocket_data.minp.z 
 		and dest.x < pocket_data.minp.x + mapblock_size
 		and dest.y < pocket_data.minp.y + mapblock_size
-		and dest.z < pocket_data.minp.z + mapblock_size,
+		and dest.z < pocket_data.minp.z + mapblock_size)
+	then minetest.log("error",
 			"[pocket_dimensions] attempting to set destination point " ..
 			minetest.pos_to_string(dest) ..
 			" that wasn't within pocket dimension "..
-			pocket_data.name)
+			pocket_data.name
+			.. " (minp " .. minetest.pos_to_string(pocket_data.minp) .. ")")
+		dest = {x=pocket_data.minp.x+2,y=pocket_data.minp.y+2,z=pocket_data.minp.z+2}
+	end
 	pocket_data.destination = dest
 	save_data()
 end
@@ -375,7 +379,7 @@ pocket_dimensions.delete_pocket = function(pocket_data, permanent)
 	local permanency_log = function(permanent) if permanent then return " Deletion was permanent." else return "" end end
 	local permanency_message = function(permanent) if permanent then return " " .. S("Deletion was permanent.") else return "" end end
 	minetest.log("action", "[pocket_dimensions] Deleted the pocket dimension " .. pocket_data.name .. " at " .. minetest.pos_to_string(pocket_data.minp).. "." .. permanency_log())
-	return true, S("Deleted pocket dimension @1 at @2. Note that this doesn't affect the map.", pocket_data.name, minetest.pos_to_string(pocket_data.minp)) .. permanency_message()
+	return true, S("Deleted pocket dimension @1 at @2. Note that this doesn't affect the map, it only removes this from the pocket dimension list.", pocket_data.name, minetest.pos_to_string(pocket_data.minp)) .. permanency_message()
 end
 
 pocket_dimensions.undelete_pocket = function(pocket_data)

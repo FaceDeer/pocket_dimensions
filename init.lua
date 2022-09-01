@@ -437,7 +437,7 @@ if personal_pockets_enabled then
 	end
 	
 	if personal_pockets_key then
-		local trigger_stack_size = 99
+		local trigger_stack_size
 		local trigger_wear_amount = 0
 		local trigger_tool_capabilities = nil
 		local trigger_help_addendum = ""
