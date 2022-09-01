@@ -10,7 +10,7 @@ local personal_pockets_enabled = personal_pockets_chat_command or personal_pocke
 
 -- pocket data tables have the following properties:
 -- pending = true -- pocket is being initialized, don't teleport there just yet
--- destination = a vector relative to the pocket's minp that is where new arrivals teleport tonumber
+-- destination = a vector relative to the pocket's minp that is where new arrivals teleport to
 -- name = a name for the pocket.
 -- owner = if set, this pocket is "owned" by this particular player.
 -- protected = if true, this pocket is protected and only the owner can modify its contents
@@ -110,7 +110,7 @@ end
 pocket_dimensions.set_protection = function(pocket_data, protection)
 	pocket_data.protected = protection
 	-- clear any existing protection
-	protected = protected_areas:get_areas_for_pos(pocket_data.minp)
+	local protected = protected_areas:get_areas_for_pos(pocket_data.minp)
 	for id, _ in pairs(protected) do -- there should only be one result
 		protected_areas:remove_area(id)
 	end
@@ -167,6 +167,7 @@ pocket_dimensions.get_deleted_pockets = function()
 end
 
 pocket_dimensions.pocket_containing_pos = function(pos)
+	if pos == nil then return end
 	for name, pocket_data in pairs(pockets_by_name) do
 		local pos_diff = vector.subtract(pos, pocket_data.minp)
 		if pos_diff.y >=0 and pos_diff.y <= mapblock_size and -- check y first to eliminate possibility player's not in a pocket dimension at all

@@ -68,7 +68,7 @@ end
 minetest.register_node("pocket_dimensions:border_glass", get_border_def({
 	light_source = 4,
 	sunlight_propagates = true, -- If true, sunlight will go infinitely through this node
-	use_texture_alpha = true,
+	use_texture_alpha = "clip",
 	tiles = {{name="pocket_dimensions_transparent.png",
 		tileable_vertical=true,
 		tileable_horizontal=true,
@@ -222,6 +222,7 @@ register_pocket_type("cave", cave_mapgen)
 minetest.register_node("pocket_dimensions:border_collapsing", get_border_def({
 	light_source = minetest.LIGHT_MAX,
 	paramtype = "light",
+	sunlight_propagates = true, -- If true, sunlight will go infinitely through this node
 	tiles = {{name="pocket_dimensions_pit_plasma.png",
 	    animation = {
 			type = "vertical_frames",
@@ -264,6 +265,15 @@ function collapse_pocket(pocket_data)
 	end
 	vm:set_data(data)
 	vm:write_to_map()
+	
+	for _, player in ipairs(minetest.get_connected_players()) do
+		local player_pos = player:get_pos()
+		-- use emin/emax to add a little buffer
+		if player_pos.x >= emin.x and player_pos.y >= emin.y and player_pos.z >= emin.z and
+			player_pos.x <= emax.x and player_pos.y <= emax.y and player_pos.z <= emax.z then
+			minetest.sound_play("pocket_dimensions_big_explosion", {to_player = player:get_player_name()})
+		end
+	end
 
 	collapse.tick = tick + 1
 	pocket_dimensions.save_data()
