@@ -211,7 +211,8 @@ local cave_mapgen = function(pocket_data)
 	while minetest.get_node(nearest_to_center).name == "air" and nearest_to_center.y > minp.y do
 		nearest_to_center.y = nearest_to_center.y -1
 	end
-	nearest_to_center.y = nearest_to_center.y + 2
+	nearest_to_center.y = nearest_to_center.y + 1
+	minetest.set_node({x=nearest_to_center.x, y=nearest_to_center.y+1, z=nearest_to_center.z}, {name="air"})
 	
 	return nearest_to_center
 end

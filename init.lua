@@ -32,6 +32,8 @@ local personal_pockets_key_uses = tonumber(minetest.settings:get("pocket_dimensi
 local personal_pockets_spawn = minetest.settings:get_bool("pocket_dimensions_personal_pockets_spawn", false)
 local personal_pockets_respawn = minetest.settings:get_bool("pocket_dimensions_personal_pockets_respawn", false) and not minetest.settings:get_bool("engine_spawn")
 
+local portal_keys_enabled = minetest.settings:get_bool("pocket_dimensions_portal_keys_enabled", false)
+
 local personal_pockets_enabled = personal_pockets_chat_command or personal_pockets_key or personal_pockets_spawn or personal_pockets_respawn
 
 -------------------------------------------------------------------------------
@@ -126,9 +128,8 @@ end)
 
 
 --------------------------------------------------------------------------------'
--- Portal key
-local portal_keys = true
-if portal_keys then
+-- Portal key, can be set to a destination from a portal node
+if portal_keys_enabled then
 	local trigger_wear_amount = 0
 	local trigger_tool_capabilities = nil
 	local trigger_help_addendum = ""
@@ -202,15 +203,15 @@ if portal_keys then
 		
 	if default_modpath then
 		minetest.register_craft({
-			output = "pocket_dimensions:personal_key",
+			output = "pocket_dimensions:key",
 			recipe = {
-			{"default:mese_crystal","default:skeleton_key"}
+			{"default:mese_crystal","default:skeleton_key","default:mese_crystal"},
 		}})
 	elseif mcl_core_modpath then
 		minetest.register_craft({
-			output = "pocket_dimensions:personal_key",
+			output = "pocket_dimensions:key",
 			recipe = {
-			{"mesecons_torch:redstoneblock","group:compass"}
+			{"mesecons_torch:redstoneblock","group:compass","mesecons_torch:redstoneblock"},
 		}})		
 	end
 end
@@ -461,7 +462,7 @@ if personal_pockets_enabled then
 			description = S("Personal Pocket Dimensional Key"),
 			_doc_items_longdesc = S("A triggering device that allows teleportation to your personal pocket dimension."),
 			_doc_items_usagehelp = S("When triggered, this tool and its user will be teleported to the user's personal pocket dimension.") .. trigger_help_addendum,
-			inventory_image = "pocket_dimensions_key.png",
+			inventory_image = "pocket_dimensions_personal_key.png",
 			stack_max = trigger_stack_size,
 			tool_capabilites = trigger_tool_capabilities,
 			sound = {
