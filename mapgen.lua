@@ -68,7 +68,7 @@ end
 minetest.register_node("pocket_dimensions:border_glass", get_border_def({
 	light_source = 4,
 	sunlight_propagates = true, -- If true, sunlight will go infinitely through this node
-	use_texture_alpha = "clip",
+	use_texture_alpha = "blend",
 	tiles = {{name="pocket_dimensions_transparent.png",
 		tileable_vertical=true,
 		tileable_horizontal=true,
