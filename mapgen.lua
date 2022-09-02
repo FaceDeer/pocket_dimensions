@@ -85,6 +85,11 @@ minetest.register_node("pocket_dimensions:border_gray", get_border_def({
 
 local c_border_gray = minetest.get_content_id("pocket_dimensions:border_gray")
 
+if minetest.get_modpath("mesecons_mvps") and mesecon and mesecon.register_mvps_stopper then
+	mesecon.register_mvps_stopper("pocket_dimensions:border_gray")
+	mesecon.register_mvps_stopper("pocket_dimensions:border_glass")
+end
+
 ---------------------------------------------------------------
 -- Pocket mapgens
 
