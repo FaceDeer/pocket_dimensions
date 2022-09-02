@@ -15,6 +15,7 @@ local personal_pockets_enabled = personal_pockets_chat_command or personal_pocke
 -- owner = if set, this pocket is "owned" by this particular player.
 -- protected = if true, this pocket is protected and only the owner can modify its contents
 -- minp = the lower corner of the pocket's region
+-- last_accessed = the gametime when this pocket was last accessed (minetest.get_gametime())
 
 local pockets_by_name = {}
 local player_origin = {}
@@ -256,9 +257,10 @@ pocket_dimensions.teleport_player_to_pocket = function(player_name, pocket_name)
 	local player = minetest.get_player_by_name(player_name)
 	if not player_origin[player_name] then
 		player_origin[player_name] = player:get_pos()
-		save_data()
 	end
 	teleport_player(player, pocket_data.destination)
+	pocket_data.last_accessed = minetest.get_gametime()
+	save_data()
 	return true
 end
 
@@ -347,6 +349,7 @@ pocket_dimensions.create_pocket = function(pocket_name, pocket_data_override)
 				pocket_data[key] = value
 			end
 			minetest.emerge_area(pos, pos, emerge_callback, pocket_data)
+			pocket_data.last_accessed = minetest.get_gametime()
 			save_data()
 			minetest.log("action", "[pocket_dimensions] Created a pocket dimension named " .. pocket_name .. " at " .. minetest.pos_to_string(pos))
 			return true, S("Pocket dimension @1 created", pocket_name)

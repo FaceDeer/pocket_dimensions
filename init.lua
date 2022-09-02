@@ -232,6 +232,7 @@ local get_admin_formspec = function(player_name)
 	formspec[#formspec+1] = "tablecolumns[text,tooltip="..S("Name")
 		..";text,tooltip="..S("Owner")
 		..";text,tooltip="..S("Protected")
+		..";text,tooltip="..S("Seconds since last access")
 	if personal_pockets_enabled then
 		formspec[#formspec+1] = ";text,tooltip="..S("Personal")
 	end
@@ -250,6 +251,7 @@ local get_admin_formspec = function(player_name)
 		undelete_toggle = "false"
 	end
 	
+	local current_gametime = minetest.get_gametime()
 	local i = 0
 	for _, pocket_data in pairs(table_to_use) do
 		i = i + 1
@@ -260,6 +262,7 @@ local get_admin_formspec = function(player_name)
 		formspec[#formspec+1] = minetest.formspec_escape(pocket_data.name)
 			..",".. minetest.formspec_escape(owner)
 			..","..tostring(pocket_data.protected or "false")
+			..","..tostring(current_gametime - (pocket_data.last_accessed or 0))
 		if personal_pockets_enabled then
 			formspec[#formspec+1] = ","..tostring(pocket_data.personal)
 		end
