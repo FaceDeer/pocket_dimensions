@@ -79,14 +79,16 @@ minetest.register_node("pocket_dimensions:border_glass", get_border_def({
 
 local c_border_glass = minetest.get_content_id("pocket_dimensions:border_glass")
 
-minetest.register_node("pocket_dimensions:border_gray", get_border_def({
-	tiles = {{name="pocket_dimensions_white.png", color="#888888"}}
+minetest.register_node("pocket_dimensions:border_opaque", get_border_def({
+	tiles = {"pocket_dimensions_white.png"},
+	paramtype2 = "color",
+	palette = "unifieddyes_palette.png",
 }))
 
-local c_border_gray = minetest.get_content_id("pocket_dimensions:border_gray")
+local c_border_opaque = minetest.get_content_id("pocket_dimensions:border_opaque")
 
 if minetest.get_modpath("mesecons_mvps") and mesecon and mesecon.register_mvps_stopper then
-	mesecon.register_mvps_stopper("pocket_dimensions:border_gray")
+	mesecon.register_mvps_stopper("pocket_dimensions:border_opaque")
 	mesecon.register_mvps_stopper("pocket_dimensions:border_glass")
 end
 
@@ -188,6 +190,7 @@ local cave_mapgen = function(pocket_data)
 	local vm = minetest.get_voxel_manip(minp, maxp)
 	local emin, emax = vm:get_emerged_area()
 	local data = vm:get_data()
+	local dataparam2 = vm:get_param2_data()
 	local area = VoxelArea:new{MinEdge = emin, MaxEdge = emax}
 	local terrain_values = terrain_map:get_3d_map(minp)
 	
@@ -195,7 +198,8 @@ local cave_mapgen = function(pocket_data)
 	local center = vector.add(minp, math.floor(pocket_size/2))
 	for vi, x, y, z in area:iterp_xyz(minp, maxp) do
 		if x == minp.x or x == maxp.x or y == minp.y or y == maxp.y or z == minp.z or z == maxp.z then
-			data[vi] = c_border_gray
+			data[vi] = c_border_opaque
+			dataparam2[vi] = 3
 		elseif default_modpath or mcl_core_modpath then
 			local terrain_level = terrain_values[x-minp.x+1][y-minp.y+1][z-minp.z+1]
 			if terrain_level <= 2 then
@@ -210,6 +214,7 @@ local cave_mapgen = function(pocket_data)
 	end
 	
 	vm:set_data(data)
+	vm:set_param2_data(dataparam2)
 	vm:write_to_map()
 	
 	-- drop the entry point downward until it hits non-air.
@@ -264,6 +269,75 @@ local desert_mapgen = function(pocket_data)
 end
 
 register_pocket_type("desert", desert_mapgen)
+
+
+----------------------------------------------------------------------------------------------------
+
+local copy_location = function(pocket_data)
+
+	if pocket_data.origin_location == nil then
+		minetest.log("error", "[pocket_dimensions] 'copy location' mapgen called without an origin_location set")
+		return pocket_data.minp
+	end
+
+	local minp = pocket_data.minp
+	local maxp = vector.add(minp, pocket_size)
+	local vm = minetest.get_voxel_manip(minp, maxp)
+	local emin, emax = vm:get_emerged_area()
+	local data = vm:get_data()
+	local dataparam2 = vm:get_param2_data()
+	local area = VoxelArea:new{MinEdge = emin, MaxEdge = emax}
+
+	local source_minp = pocket_data.origin_location
+	local source_maxp = vector.add(source_minp, pocket_size)
+	local source_vm = minetest.get_voxel_manip(source_minp, source_maxp)
+	local source_emin, source_emax = source_vm:get_emerged_area()
+	local source_data = source_vm:get_data()
+	local source_dataparam2 = source_vm:get_param2_data()
+	local source_area = VoxelArea:new{MinEdge = source_emin, MaxEdge = source_emax}
+	
+	for vi, x, y, z in area:iterp_xyz(minp, maxp) do
+		if x == minp.x or x == maxp.x or y == minp.y or y == maxp.y or z == minp.z or z == maxp.z then
+			data[vi] = c_border_glass
+		else
+			local target_pos = vector.new(x,y,z)
+			local diff = vector.subtract(target_pos, minp)
+			local source_pos = vector.add(source_minp, diff)
+			local source_vi = source_area:indexp(source_pos)
+			if source_area:containsp(source_pos) then
+				data[vi] = source_data[source_vi]
+				dataparam2[vi] = source_dataparam2[source_vi]
+			else
+				minetest.log("error", "[pocket_dimensions] tried copying from " .. minetest.pos_to_string(source_pos) .. " but that wasn't within area " .. dump(source_area))
+			end
+		end
+	end
+	
+	vm:set_data(data)
+	vm:set_param2_data(dataparam2)
+	vm:write_to_map()
+
+	local displacement = vector.subtract(minp, source_minp)
+	local meta_nodes = minetest.find_nodes_with_meta(vector.add(source_minp,1), vector.subtract(source_maxp,1))
+	for _, source_pos in ipairs(meta_nodes) do
+		local source_node = minetest.get_node(source_pos)
+		local target_pos = vector.add(source_pos, displacement)
+		local target_node = minetest.get_node(target_pos)
+		if source_node.name == target_node.name then
+			local source_meta = minetest.get_meta(source_pos):to_table()
+			local target_meta = minetest.get_meta(target_pos)
+			target_meta:from_table(source_meta)
+		else
+			minetest.log("error", "[pocket_dimensions] tried copying metadata from " .. minetest.pos_to_string(source_pos)
+				.. " (a ".. source_node.name..") to " .. minetest.pos_to_string(target_pos)
+				.. " (a ".. target_node.name..")")
+		end
+	end
+
+	return vector.add(minp, math.floor(pocket_size/2))
+end
+
+register_pocket_type("copy location", copy_location)
 
 
 -----------------------------------------------------------------------------------------------------
@@ -358,3 +432,16 @@ local test_collapse = function()
 end
 
 minetest.after(1, test_collapse)
+
+
+minetest.register_lbm({
+	label = "Upgrade opaque pocket dimension borders",
+	name = "pocket_dimensions:upgrade_opaque_borders",
+	nodenames = {"pocket_dimensions:border_gray"},
+	-- List of node names to trigger the LBM on.
+	-- Names of non-registered nodes and groups (as group:groupname)
+	-- will work as well.
+	action = function(pos, node)
+		minetest.set_node(pos, {name="pocket_dimensions:border_opaque", param2=3})	
+	end,
+})

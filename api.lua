@@ -317,7 +317,10 @@ end
 
 local emerge_callback = function(blockpos, action, calls_remaining, pocket_data)
 	local mapgen_callback = mapgens[pocket_data.type]
-	assert(mapgen_callback, "[pocket_dimensions] pocket type " .. pocket_data.type .. " had no registered mapgen callback")
+	if mapgen_callback == nil then
+		minetest.log("error", "[pocket_dimensions] pocket type " .. pocket_data.type .. " had no registered mapgen callback")
+		return
+	end
 	local dest = mapgen_callback(pocket_data)
 	pocket_dimensions.set_destination(pocket_data, dest)
 	pocket_data.pending = nil
