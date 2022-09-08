@@ -92,6 +92,9 @@ if minetest.get_modpath("mesecons_mvps") and mesecon and mesecon.register_mvps_s
 	mesecon.register_mvps_stopper("pocket_dimensions:border_glass")
 end
 
+pocket_dimensions.register_border_type(S("Gray"), {name = "pocket_dimensions:border_opaque", param2 = 3})
+pocket_dimensions.register_border_type(S("Glass"), {name = "pocket_dimensions:border_glass"})
+
 ---------------------------------------------------------------
 -- Pocket mapgens
 

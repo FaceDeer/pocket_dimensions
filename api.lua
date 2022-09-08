@@ -18,6 +18,7 @@ local personal_pockets_enabled = personal_pockets_chat_command or personal_pocke
 -- last_accessed = the gametime when this pocket was last accessed (minetest.get_gametime())
 
 local pockets_by_name = {}
+local border_types_by_name = {}
 local player_origin = {}
 local pockets_deleted = {} -- record deleted pockets for possible later undeletion, indexed by hash
 local personal_pockets = {} -- to be filled out if personal pockets are enabled
@@ -36,6 +37,7 @@ local layer_elevation = tonumber(minetest.settings:get("pocket_dimensions_altitu
 layer_elevation = math.floor(layer_elevation / mapblock_size) * mapblock_size - 32 -- round to mapblock boundary
 
 pocket_dimensions.pocket_size = mapblock_size
+local pocket_size = pocket_dimensions.pocket_size
 
 --------------------------------------------------------------------------------------
 -- Loading and saving data
@@ -186,6 +188,7 @@ pocket_dimensions.rename_pocket = function(old_name, new_name)
 	if pockets_by_name[new_name_lower] or not pockets_by_name[old_name_lower] then
 		return false
 	end
+	local pocket_data = pockets_by_name[old_name_lower]
 	pockets_by_name[new_name_lower] = pocket_data
 	pockets_by_name[old_name_lower] = nil
 	pocket_data.name = new_name
@@ -404,6 +407,44 @@ pocket_dimensions.undelete_pocket = function(pocket_data)
 	
 	minetest.log("action", "[pocket_dimensions] Undeleted the pocket dimension " .. pocket_data.name .. " at " .. minetest.pos_to_string(pocket_data.minp))
 	return true, S("Undeleted pocket dimension @1 at @2. Note that this doesn't affect the map, just moves this pocket dimension out of regular access and into the deleted list.", pocket_data.name, minetest.pos_to_string(pocket_data.minp))
+end
+
+pocket_dimensions.register_border_type = function(border_name, node_data)
+	border_types_by_name[border_name] = node_data
+end
+
+pocket_dimensions.get_all_border_types = function()
+	return border_types_by_name
+end
+
+pocket_dimensions.set_border = function(pocket_name, border_name)
+	local pocket_data = pockets_by_name[pocket_name]
+	if not pocket_data then return false end
+	local border = border_types_by_name[border_name]
+	if not border then return false end
+	
+	local c_border = minetest.get_content_id(border.name)
+	local param2 = border.param2 or 0
+	local minp = pocket_data.minp
+	local maxp = vector.add(minp, pocket_size)
+	local vm = minetest.get_voxel_manip(minp, maxp)
+	local emin, emax = vm:get_emerged_area()
+	local data = vm:get_data()
+	local dataparam2 = vm:get_param2_data()
+	local area = VoxelArea:new{MinEdge = emin, MaxEdge = emax}
+
+	for vi, x, y, z in area:iterp_xyz(minp, maxp) do
+		if x == minp.x or x == maxp.x or y == minp.y or y == maxp.y or z == minp.z or z == maxp.z then
+			data[vi] = c_border
+			dataparam2[vi] = param2
+		end
+	end
+	
+	vm:set_data(data)
+	vm:set_param2_data(dataparam2)
+	vm:write_to_map()
+
+	return true
 end
 
 ------------------------------------------------------------------

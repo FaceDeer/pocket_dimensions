@@ -23,6 +23,8 @@ local get_personal_pocket = pocket_dimensions.get_personal_pocket
 local set_personal_pocket = pocket_dimensions.set_personal_pocket
 local set_owner = pocket_dimensions.set_owner
 local teleport_player_to_pocket = pocket_dimensions.teleport_player_to_pocket
+local get_all_border_types = pocket_dimensions.get_all_border_types
+local set_border = pocket_dimensions.set_border
 
 local pocket_size = pocket_dimensions.pocket_size
 
@@ -219,10 +221,10 @@ end
 -------------------------------------------------------------------------------
 -- Admin commands
 
-local formspec_state = {}
+local admin_formspec_state = {}
 local get_admin_formspec = function(player_name)
-	formspec_state[player_name] = formspec_state[player_name] or {row_index=1}
-	local state = formspec_state[player_name]
+	admin_formspec_state[player_name] = admin_formspec_state[player_name] or {row_index=1}
+	local state = admin_formspec_state[player_name]
 
 	local formspec = {
 		"formspec_version[2]"
@@ -314,11 +316,10 @@ minetest.register_on_player_receive_fields(function(player, formname, fields)
 	end
 	
 	local refresh = false
-	local state = formspec_state[player_name]
+	local state = admin_formspec_state[player_name]
+	if state == nil then return end
+	
 	local pocket_data = state.selected_data
-	if state == nil then
-		return
-	end
 
 	if fields.pocket_table then
 		local table_event = minetest.explode_table_event(fields.pocket_table)
@@ -387,6 +388,150 @@ minetest.register_on_player_receive_fields(function(player, formname, fields)
 		minetest.show_formspec(player_name, "pocket_dimensions:admin", get_admin_formspec(player_name))
 	end
 end)
+
+--------------------------------------------------------------------------------------------------------
+-- Per-pocket configuration
+
+local border_types = get_all_border_types()
+local border_names = {}
+for name, _ in pairs(border_types) do
+	table.insert(border_names, name)
+end
+table.sort(border_names)
+
+local config_formspec_state = {}
+local get_config_formspec = function(player_name, pocket_data)
+	config_formspec_state[player_name] = config_formspec_state[player_name] or {row_index=1}
+	local state = config_formspec_state[player_name]
+	state.pocket_data = pocket_data
+	
+	local formspec = {
+		"formspec_version[2]"
+		.."size[8,9.5]"
+		.."label[0.5,0.5;"..S("Players that can bypass protection:").."]"
+		.."button_exit[7.0,0.25;0.5,0.5;close;X]"
+	}
+	
+	formspec[#formspec+1] = "tablecolumns[text,tooltip="..S("Player Name")
+	formspec[#formspec+1] = "]table[0.5,1.0;7,5.75;permitted_table;"
+	
+	local protection_permitted = pocket_data.protection_permitted or {}
+	pocket_data.protection_permitted = protection_permitted
+	local i = 0
+	for permitted_player, _ in pairs(protection_permitted) do
+		i = i + 1
+		if i == state.row_index then
+			state.selected_player = permitted_player
+		end
+		formspec[#formspec+1] = minetest.formspec_escape(permitted_player)
+		formspec[#formspec+1] = ","
+	end
+	formspec[#formspec] = ";"..state.row_index.."]" -- don't use +1, this overwrites the last ","
+	
+	formspec[#formspec+1] = "container[0.5,7]"
+		.."field[0.0,0.0;6.5,0.5;pocket_name;;" .. minetest.formspec_escape(pocket_data.name or "") .."]"
+		.."button[0,0.5;3,0.5;rename;"..S("Rename").."]"
+		.."button[3.5,0.5;2,0.5;border;"..S("Change Border").."]"
+		.."dropdown[5.5,0.5;1,0.5;border_type;"
+		..table.concat(border_names, ",")..";1]"
+		.."button[3.5,1.5;3,0.5;remove_permission;"..S("Remove Permission").."]"		
+		.."field[0.0,1;3,0.5;name_permitted;;]"
+		.."label[3.25,1.25;<-]"
+		.."button[3.5,1;3,0.5;give_permission;"..S("Give Permission").."]"
+		.."container_end[]"
+	return table.concat(formspec)
+end
+
+minetest.register_chatcommand("pocket_config", {
+	params = "[pocket name]",
+	description = S("Configure a pocket dimension"),
+	func = function(player_name, param)
+		local pocket_data = get_pocket(param)
+		if not pocket_data then
+			local player = minetest.get_player_by_name(player_name)
+			local player_pos = player:get_pos()
+			pocket_data = pocket_containing_pos(player_pos)
+			if not pocket_data then
+				if param ~= "" then
+					minetest.chat_send_player(player_name, S("A pocket dimension named @1 doesn't exist.", param))
+				else
+					minetest.chat_send_player(player_name, S("Unable to find a pocket dimension to configure."))
+				end
+				return
+			end
+		end
+		minetest.show_formspec(player_name, "pocket_dimensions:config", get_config_formspec(player_name, pocket_data))
+	end
+})
+
+minetest.register_on_player_receive_fields(function(player, formname, fields)
+	if formname ~= "pocket_dimensions:config" then
+		return
+	end
+
+	if fields.close then
+		return
+	end
+
+	local player_name = player:get_player_name()
+	local state = config_formspec_state[player_name]
+	if state == nil then return end
+	
+	local pocket_data = state.pocket_data
+	
+	if not (minetest.check_player_privs(player_name, {server = true}) or
+		pocket_data.owner == player_name)
+	then
+		minetest.chat_send_player(player_name, S("This command is for server admins and pocket owners only."))
+		return
+	end
+	
+	local refresh = false
+	
+	if fields.permitted_table then
+		local table_event = minetest.explode_table_event(fields.permitted_table)
+		if table_event.type == "CHG" then
+			state.row_index = table_event.row
+			refresh = true
+		end
+	end
+
+	if fields.rename and fields.pocket_name ~= pocket_data.name then
+		if not rename_pocket(pocket_data.name, fields.pocket_name)then
+			minetest.chat_send_player(player_name, S("A pocket dimension with that name already exists"))
+		else
+			refresh=true
+		end
+	end
+	
+	if fields.border then
+		local success = set_border(pocket_data.name, fields.border_type)
+		if success then
+			minetest.chat_send_player(player_name, S("Border type for pocket updated to @1", fields.border_type))
+		else
+			minetest.chat_send_player(player_name, S("Failed to update pocket dimension border type to @1", fields.border_type))
+		end
+	end
+	
+	if fields.remove_permission then
+		local is_permitted = pocket_data.protection_permitted[state.selected_player]
+		if is_permitted then
+			pocket_data.protection_permitted[state.selected_player] = nil
+			state.row_index = 1
+			refresh = true
+		end
+	end
+	
+	if fields.give_permission and not (fields.name_permitted == "" or pocket_data.protection_permitted[fields.name_permitted]) then
+		pocket_data.protection_permitted[fields.name_permitted] = true
+		refresh = true
+	end
+	
+	if refresh then
+		minetest.show_formspec(player_name, "pocket_dimensions:config", get_config_formspec(player_name, pocket_data))
+	end
+end)
+
 
 --------------------------------------------------------------------------------------------------------
 -- Personal pockets
