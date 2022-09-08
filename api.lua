@@ -12,8 +12,8 @@ local personal_pockets_enabled = personal_pockets_chat_command or personal_pocke
 -- pending = true -- pocket is being initialized, don't teleport there just yet
 -- destination = a vector relative to the pocket's minp that is where new arrivals teleport to
 -- name = a name for the pocket.
--- owner = if set, this pocket is "owned" by this particular player.
--- protected = if true, this pocket is protected and only the owner can modify its contents
+-- owner = if set, this pocket is "owned" by this particular player. The pocket is protected against changes by non-owner users.
+-- protection_permitted = a set of player names who can bypass the protection on this pocket dimension, other than the owner
 -- minp = the lower corner of the pocket's region
 -- last_accessed = the gametime when this pocket was last accessed (minetest.get_gametime())
 
@@ -69,8 +69,8 @@ local load_data = function()
 	
 	-- add saved protected areas
 	for name, pocket_data in pairs(pockets_by_name) do
-		if pocket_data.protected then
-			protected_areas:insert_area(pocket_data.minp, vector.add(pocket_data.minp, mapblock_size), pocket_data.owner)
+		if pocket_data.owner then
+			protected_areas:insert_area(pocket_data.minp, vector.add(pocket_data.minp, mapblock_size), pocket_data.name)
 		end
 	end
 end
@@ -103,26 +103,13 @@ function minetest.is_protected(pos, name)
 	end
 	local protection = protected_areas:get_areas_for_pos(pos, false, true)
 	for _, area in pairs(protection) do
-		if area.data ~= name then
+		local pocket_data = pockets_by_name[area.data]
+		local protection_permitted = pocket_data.protection_permitted or {}
+		if pocket_data.owner ~= name and not protection_permitted[name] then
 			return true
 		end
 	end
 	return old_is_protected(pos, name)
-end
-
-pocket_dimensions.set_protection = function(pocket_data, protection)
-	pocket_data.protected = protection
-	-- clear any existing protection
-	local protected = protected_areas:get_areas_for_pos(pocket_data.minp)
-	for id, _ in pairs(protected) do -- there should only be one result
-		protected_areas:remove_area(id)
-	end
-	-- add protection if warranted
-	if pocket_data.protected then
-		protected_areas:insert_area(pocket_data.minp, vector.add(pocket_data.minp, mapblock_size), pocket_data.owner or "")
-	end
-	minetest.log("action", "[pocket_dimensions] Protection ownership of pocket dimension " .. pocket_data.name .. " set to " .. tostring(pocket_data.protected))
-	save_data()
 end
 
 -----------------------------------------------------------------------------------------------------
@@ -455,6 +442,24 @@ pocket_dimensions.get_personal_pocket = function(player_name)
 	return personal_pockets[player_name]
 end
 
+pocket_dimensions.set_owner = function(pocket_data, player_name)
+	-- clear protected area.
+	local protected = protected_areas:get_areas_for_pos(pocket_data.minp)
+	for id, _ in pairs(protected) do -- there should only be one result
+		protected_areas:remove_area(id)
+	end
+	if player_name and player_name ~= "" then
+		pocket_data.owner = player_name
+		-- add protected area under new name
+		protected_areas:insert_area(pocket_data.minp, vector.add(pocket_data.minp, mapblock_size), pocket_data.name)
+		minetest.log("action", "[pocket_dimensions] Ownership of pocket dimension " .. pocket_data.name .. " set to " .. player_name)
+	else
+		pocket_data.owner = nil
+		minetest.log("action", "[pocket_dimensions] Ownership of pocket dimension " .. pocket_data.name .. " cleared.")
+	end
+	save_data()
+end
+
 pocket_dimensions.set_personal_pocket = function(pocket_data, player_name)
 	if pocket_data.personal and not player_name then
 		-- clear personal pocket
@@ -462,13 +467,7 @@ pocket_dimensions.set_personal_pocket = function(pocket_data, player_name)
 		pocket_data.personal = nil
 	else
 		pocket_data.personal = true
-		pocket_data.owner = player_name
 		personal_pockets[player_name] = pocket_data
 	end
-	save_data()
-end
-
-pocket_dimensions.set_owner = function(pocket_data, player_name)
-	pocket_data.owner = player_name
 	save_data()
 end

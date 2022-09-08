@@ -16,7 +16,6 @@ local rename_pocket = pocket_dimensions.rename_pocket
 local create_pocket = pocket_dimensions.create_pocket
 local delete_pocket = pocket_dimensions.delete_pocket
 local undelete_pocket = pocket_dimensions.undelete_pocket
-local set_protection = pocket_dimensions.set_protection
 local pocket_containing_pos = pocket_dimensions.pocket_containing_pos
 local set_destination = pocket_dimensions.set_destination
 local get_personal_pocket = pocket_dimensions.get_personal_pocket
@@ -218,11 +217,14 @@ if portal_keys_enabled then
 	end
 end
 
+local get_config_formspec
+local get_admin_formspec
+
 -------------------------------------------------------------------------------
 -- Admin commands
 
 local admin_formspec_state = {}
-local get_admin_formspec = function(player_name)
+get_admin_formspec = function(player_name)
 	admin_formspec_state[player_name] = admin_formspec_state[player_name] or {row_index=1}
 	local state = admin_formspec_state[player_name]
 
@@ -234,7 +236,6 @@ local get_admin_formspec = function(player_name)
 	
 	formspec[#formspec+1] = "tablecolumns[text,tooltip="..S("Name")
 		..";text,tooltip="..S("Owner")
-		..";text,tooltip="..S("Protected")
 		..";text,tooltip="..S("Seconds since last access")
 	if personal_pockets_enabled then
 		formspec[#formspec+1] = ";text,tooltip="..S("Personal")
@@ -264,7 +265,6 @@ local get_admin_formspec = function(player_name)
 		local owner = pocket_data.owner or "<none>"
 		formspec[#formspec+1] = minetest.formspec_escape(pocket_data.name)
 			..",".. minetest.formspec_escape(owner)
-			..","..tostring(pocket_data.protected or "false")
 			..","..tostring(current_gametime - (pocket_data.last_accessed or 0))
 		if personal_pockets_enabled then
 			formspec[#formspec+1] = ","..tostring(pocket_data.personal)
@@ -282,7 +282,7 @@ local get_admin_formspec = function(player_name)
 		.."dropdown[5.5,0.5;1,0.5;create_type;"
 		..table.concat(pocket_dimensions.get_all_pocket_types(), ",")..";1]"
 		.."button[0,1;3,0.5;teleport;"..S("Teleport To").."]"
-		.."button[3.5,1;3,0.5;protect;"..S("Toggle Protect").."]"
+		.."button[3.5,1;3,0.5;config;"..S("Configure Selected").."]"
 		.."button[0,1.5;3,0.5;delete;"..delete_label.."]"		
 		.."field[0.0,2;3,0.5;owner;;".. minetest.formspec_escape(selected_data.owner or "").."]"
 		.."button[3.5,2;3,0.5;set_owner;"..S("Set Owner").."]"
@@ -366,9 +366,9 @@ minetest.register_on_player_receive_fields(function(player, formname, fields)
 		refresh = true
 	end
 	
-	if fields.protect then
-		set_protection(pocket_data, not pocket_data.protected)
-		refresh = true
+	if fields.config then
+		minetest.show_formspec(player_name, "pocket_dimensions:config", get_config_formspec(player_name, pocket_data))
+		return
 	end
 	
 	if fields.teleport and pocket_data then
@@ -400,7 +400,7 @@ end
 table.sort(border_names)
 
 local config_formspec_state = {}
-local get_config_formspec = function(player_name, pocket_data)
+get_config_formspec = function(player_name, pocket_data)
 	config_formspec_state[player_name] = config_formspec_state[player_name] or {row_index=1}
 	local state = config_formspec_state[player_name]
 	state.pocket_data = pocket_data
@@ -438,7 +438,10 @@ local get_config_formspec = function(player_name, pocket_data)
 		.."field[0.0,1;3,0.5;name_permitted;;]"
 		.."label[3.25,1.25;<-]"
 		.."button[3.5,1;3,0.5;give_permission;"..S("Give Permission").."]"
-		.."container_end[]"
+	if minetest.check_player_privs(player_name, {server = true}) then
+		formspec[#formspec+1] = "button[0,1.5;3,0.5;admin;" .. S("Admin Screen") .. "]"
+	end
+	formspec[#formspec+1] = "container_end[]"
 	return table.concat(formspec)
 end
 
@@ -527,11 +530,14 @@ minetest.register_on_player_receive_fields(function(player, formname, fields)
 		refresh = true
 	end
 	
+	if fields.admin and minetest.check_player_privs(player_name, {server = true}) then
+		minetest.show_formspec(player_name, "pocket_dimensions:admin", get_admin_formspec(player_name))
+	end
+	
 	if refresh then
 		minetest.show_formspec(player_name, "pocket_dimensions:config", get_config_formspec(player_name, pocket_data))
 	end
 end)
-
 
 --------------------------------------------------------------------------------------------------------
 -- Personal pockets
@@ -572,7 +578,7 @@ if personal_pockets_enabled then
 		if success then
 			pocket_data = get_pocket(new_pocket_name)
 			set_personal_pocket(pocket_data, player_name)
-			set_protection(pocket_data, true)
+			set_owner(pocket_data, player_name)
 			teleport_to_pending(new_pocket_name, player_name, 1)
 		end
 		minetest.chat_send_player(player_name, message)
@@ -673,7 +679,7 @@ if personal_pockets_enabled then
 			
 			minetest.show_formspec(player_name, "pocket_dimensions:intro",
 				"formspec_version[2]"
-				.."size[8,3]"
+				.."size[8,4]"
 				.."button_exit[7.0,0.25;0.5,0.5;close;X]"
 				.."textarea[0.25,0.25;6.5,3;;;"
 				..S("You have spawned inside your own personal pocket dimension.\nTo leave, walk to within one meter of the pocket dimension's\nboundary and punch the barrier there.")
@@ -721,45 +727,6 @@ minetest.register_chatcommand("pocket_entry", {
 		end
 		set_destination(pocket_data, pos)
 		minetest.chat_send_player(player_name, S("The entry point for pocket dimension @1 has been updated", pocket_data.name))
-	end,
-})
-
-minetest.register_chatcommand("pocket_protect", {
-	params = "[true|false]",
---	privs = {}, -- TODO a new privilege here?
-	description = S("Set whether the pocket dimension you're in is protected from changes by non-owners."),
-	func = function(player_name, param)
-		local pos = minetest.get_player_by_name(player_name):get_pos()
-		local pocket_data = pocket_containing_pos(pos)
-		if not pocket_data then
-			minetest.chat_send_player(player_name, S("You're not inside a pocket dimension right now."))
-			return
-		end
-		if player_name ~= pocket_data.owner and not minetest.check_player_privs(player_name, "server") then
-			minetest.chat_send_player(player_name, S("You don't have permission to change the protection of pocket dimension @1.", pocket_data.name))
-			return
-		end
-		
-		local new_state
-		local param = string.sub(param,1,1)
-		if not param or param == "" then
-			new_state = not pocket_data.protected
-		elseif param == "t" or param == "T" then
-			new_state = true
-		elseif param == "f" or param == "F" then
-			new_state = false
-		else
-			minetest.chat_send_player(player_name, S("Parameter not recognized as 'true' or 'false.'"))
-			return
-		end
-		
-		if new_state then
-			set_protection(pocket_data, true)
-			minetest.chat_send_player(player_name, S("Pocket dimension @1 has been protected", pocket_data.name))
-		else
-			set_protection(pocket_data, false)
-			minetest.chat_send_player(player_name, S("Pocket dimension @1 has been unprotected", pocket_data.name))		
-		end
 	end,
 })
 
