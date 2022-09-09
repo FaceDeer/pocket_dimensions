@@ -29,6 +29,8 @@ This mod is compatible with both the default minetest game and Mineclone2, and w
 
 * ``/pocket_admin`` is available to server admins and opens up a formspec that allows pocket dimensions to be managed. Pocket dimensions can be created or deleted here (and undeleted), they can have their ownership set, and they can be protected or unprotected.
 
+* ``/pocket_config`` is available to server admins and pocket dimension owners, allowing them to change settings for the pockets they own.
+
 * ``/pocket_personal`` teleports you directly to your personal pocket dimension, if this feature has been enabled on this server.
 
 * ``/pocket_entry`` resets the "arrival" point of the pocket dimension you're currently inside to your current location. This command is only available if you're a server admin or if you're inside a pocket dimension that you're the owner of.

@@ -27,12 +27,13 @@ local personal_pockets_key = minetest.settings:get_bool("pocket_dimensions_perso
 local personal_pockets_key_uses = tonumber(minetest.settings:get("pocket_dimensions_personal_pockets_key_uses")) or 0
 local personal_pockets_spawn = minetest.settings:get_bool("pocket_dimensions_personal_pockets_spawn", false)
 local personal_pockets_respawn = minetest.settings:get_bool("pocket_dimensions_personal_pockets_respawn", false) and not minetest.settings:get_bool("engine_spawn")
+local personal_pockets_public_key = minetest.settings:get_bool("pocket_dimensions_personal_pockets_public_key", false)
 
 local portal_keys_enabled = minetest.settings:get_bool("pocket_dimensions_portal_keys_enabled", false)
 
-local personal_pockets_enabled = personal_pockets_chat_command or personal_pockets_key or personal_pockets_spawn or personal_pockets_respawn
+local personal_pockets_enabled = personal_pockets_chat_command or personal_pockets_key or personal_pockets_spawn or personal_pockets_respawn or personal_pockets_public_key
 
-
+if not personal_pockets_enabled then return end
 
 function teleport_to_pending(pocket_name, player_name, count)
 	local teleported = teleport_player_to_pocket(player_name, pocket_name)
@@ -86,29 +87,30 @@ if personal_pockets_chat_command then
 	})
 end
 
+
+local trigger_stack_size
+local trigger_wear_amount = 0
+local trigger_tool_capabilities = nil
+local trigger_help_addendum = ""
+
+if personal_pockets_key_uses > 0 then
+	trigger_stack_size = 1
+	trigger_wear_amount = math.ceil(65535 / personal_pockets_key_uses)
+	trigger_tool_capabilities = {
+		full_punch_interval=1.5,
+		max_drop_level=1,
+		groupcaps={},
+		damage_groups = {},
+	}
+	trigger_help_addendum = S(" This tool can be used @1 times before breaking.", personal_pockets_key_uses)
+end
+
 if personal_pockets_key then
-	local trigger_stack_size
-	local trigger_wear_amount = 0
-	local trigger_tool_capabilities = nil
-	local trigger_help_addendum = ""
-
-	if personal_pockets_key_uses > 0 then
-		trigger_stack_size = 1
-		trigger_wear_amount = math.ceil(65535 / personal_pockets_key_uses)
-		trigger_tool_capabilities = {
-			full_punch_interval=1.5,
-			max_drop_level=1,
-			groupcaps={},
-			damage_groups = {},
-		}
-		trigger_help_addendum = S(" This tool can be used @1 times before breaking.", personal_pockets_key_uses)
-	end
-
 	local trigger_def = {
 		description = S("Personal Pocket Dimensional Key"),
 		_doc_items_longdesc = S("A triggering device that allows teleportation to your personal pocket dimension."),
 		_doc_items_usagehelp = S("When triggered, this tool and its user will be teleported to the user's personal pocket dimension.") .. trigger_help_addendum,
-		inventory_image = "pocket_dimensions_personal_key.png",
+		inventory_image = "pocket_dimensions_key.png",
 		stack_max = trigger_stack_size,
 		tool_capabilites = trigger_tool_capabilities,
 		sound = {

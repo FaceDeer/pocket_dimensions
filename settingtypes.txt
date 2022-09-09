@@ -13,3 +13,4 @@ pocket_dimensions_personal_pockets_spawn (Spawn a new player in his personal poc
 pocket_dimensions_personal_pockets_respawn (Respawn a dead player in his personal pocket) bool false
 pocket_dimensions_personal_pockets_key (Allow personal pocket access via a craftable key item) bool false
 pocket_dimensions_personal_pockets_key_uses (Personal pocket key uses before it breaks - 0 for infinite) int 0
+pocket_dimensions_personal_pockets_public_key (Allow personal pocket access via a craftable key item that anyone can use) bool false
