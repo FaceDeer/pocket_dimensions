@@ -1,3 +1,6 @@
+local portal_keys_enabled = minetest.settings:get_bool("pocket_dimensions_portal_keys_enabled", false)
+if not portal_keys_enabled then return end
+
 local S = minetest.get_translator(minetest.get_current_modname())
 
 local default_modpath = minetest.get_modpath("default")
@@ -20,20 +23,7 @@ local teleport_player_to_pocket = pocket_dimensions.teleport_player_to_pocket
 local get_all_border_types = pocket_dimensions.get_all_border_types
 local set_border = pocket_dimensions.set_border
 
-local pocket_size = pocket_dimensions.pocket_size
-
-local personal_pockets_chat_command = minetest.settings:get_bool("pocket_dimensions_personal_pockets_chat_command", false)
-local personal_pockets_key = minetest.settings:get_bool("pocket_dimensions_personal_pockets_key", false)
-local personal_pockets_key_uses = tonumber(minetest.settings:get("pocket_dimensions_personal_pockets_key_uses")) or 0
-local personal_pockets_spawn = minetest.settings:get_bool("pocket_dimensions_personal_pockets_spawn", false)
-local personal_pockets_respawn = minetest.settings:get_bool("pocket_dimensions_personal_pockets_respawn", false) and not minetest.settings:get_bool("engine_spawn")
-local personal_pockets_public_keys = minetest.settings:get_bool("pocket_dimensions_personal_pockets_public_key", false)
-
-local portal_keys_enabled = minetest.settings:get_bool("pocket_dimensions_portal_keys_enabled", false)
-
-local personal_pockets_enabled = personal_pockets_chat_command or personal_pockets_key or personal_pockets_spawn or personal_pockets_respawn or personal_pockets_public_keys
-
-if not portal_keys_enabled then return end
+local personal_pockets_key_uses = tonumber(minetest.settings:get("pocket_dimensions_portal_key_uses")) or 0
 
 local trigger_wear_amount = 0
 local trigger_tool_capabilities = nil

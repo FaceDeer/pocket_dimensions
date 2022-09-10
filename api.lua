@@ -2,11 +2,10 @@ local S = minetest.get_translator(minetest.get_current_modname())
 
 local personal_pockets_chat_command = minetest.settings:get_bool("pocket_dimensions_personal_pockets_chat_command", false)
 local personal_pockets_key = minetest.settings:get_bool("pocket_dimensions_personal_pockets_key", false)
-local personal_pockets_key_uses = tonumber(minetest.settings:get("pocket_dimensions_personal_pockets_key_uses")) or 0
+local personal_pockets_key_uses = tonumber(minetest.settings:get("pocket_dimensions_portal_key_uses")) or 0
 local personal_pockets_spawn = minetest.settings:get_bool("pocket_dimensions_personal_pockets_spawn", false)
 local personal_pockets_respawn = minetest.settings:get_bool("pocket_dimensions_personal_pockets_respawn", false) and not minetest.settings:get_bool("engine_spawn")
 local personal_pockets_enabled = personal_pockets_chat_command or personal_pockets_key or personal_pockets_spawn or personal_pockets_respawn
-
 
 -- pocket data tables have the following properties:
 -- pending = true -- pocket is being initialized, don't teleport there just yet
@@ -470,4 +469,28 @@ pocket_dimensions.set_personal_pocket = function(pocket_data, player_name)
 		personal_pockets[player_name] = pocket_data
 	end
 	save_data()
+end
+
+-- Get an unused pocket name
+pocket_dimensions.unused_pocket_name = function(desired_name)
+	if pocket_dimensions.get_pocket(desired_name) then
+		local count = 1
+		while pocket_dimensions.get_pocket(desired_name .. " " .. tostring(count)) do
+			count = count + 1
+		end
+		return desired_name .. " " .. tostring(count)
+	end
+	return desired_name
+end
+
+function pocket_dimensions.teleport_to_pending(pocket_name, player_name, count)
+	local teleported = pocket_dimensions.teleport_player_to_pocket(player_name, pocket_name)
+	if teleported then
+		return
+	end
+	if not teleported and count < 10 then
+		minetest.after(1, pocket_dimensions.teleport_to_pending, pocket_name, player_name, count + 1)
+		return
+	end
+	minetest.chat_send_player(player_name, S("Teleport to personal pocket dimension @1 failed after @2 tries.", pocket_name, count))
 end

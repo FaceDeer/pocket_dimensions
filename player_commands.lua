@@ -21,7 +21,7 @@ local pocket_size = pocket_dimensions.pocket_size
 
 local personal_pockets_chat_command = minetest.settings:get_bool("pocket_dimensions_personal_pockets_chat_command", false)
 local personal_pockets_key = minetest.settings:get_bool("pocket_dimensions_personal_pockets_key", false)
-local personal_pockets_key_uses = tonumber(minetest.settings:get("pocket_dimensions_personal_pockets_key_uses")) or 0
+local personal_pockets_key_uses = tonumber(minetest.settings:get("pocket_dimensions_portal_key_uses")) or 0
 local personal_pockets_spawn = minetest.settings:get_bool("pocket_dimensions_personal_pockets_spawn", false)
 local personal_pockets_respawn = minetest.settings:get_bool("pocket_dimensions_personal_pockets_respawn", false) and not minetest.settings:get_bool("engine_spawn")
 

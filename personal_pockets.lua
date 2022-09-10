@@ -19,33 +19,17 @@ local set_owner = pocket_dimensions.set_owner
 local teleport_player_to_pocket = pocket_dimensions.teleport_player_to_pocket
 local get_all_border_types = pocket_dimensions.get_all_border_types
 local set_border = pocket_dimensions.set_border
-
 local pocket_size = pocket_dimensions.pocket_size
 
 local personal_pockets_chat_command = minetest.settings:get_bool("pocket_dimensions_personal_pockets_chat_command", false)
 local personal_pockets_key = minetest.settings:get_bool("pocket_dimensions_personal_pockets_key", false)
-local personal_pockets_key_uses = tonumber(minetest.settings:get("pocket_dimensions_personal_pockets_key_uses")) or 0
+local personal_pockets_key_uses = tonumber(minetest.settings:get("pocket_dimensions_portal_key_uses")) or 0
 local personal_pockets_spawn = minetest.settings:get_bool("pocket_dimensions_personal_pockets_spawn", false)
 local personal_pockets_respawn = minetest.settings:get_bool("pocket_dimensions_personal_pockets_respawn", false) and not minetest.settings:get_bool("engine_spawn")
-local personal_pockets_public_key = minetest.settings:get_bool("pocket_dimensions_personal_pockets_public_key", false)
 
-local portal_keys_enabled = minetest.settings:get_bool("pocket_dimensions_portal_keys_enabled", false)
-
-local personal_pockets_enabled = personal_pockets_chat_command or personal_pockets_key or personal_pockets_spawn or personal_pockets_respawn or personal_pockets_public_key
+local personal_pockets_enabled = personal_pockets_chat_command or personal_pockets_key or personal_pockets_spawn or personal_pockets_respawn
 
 if not personal_pockets_enabled then return end
-
-function teleport_to_pending(pocket_name, player_name, count)
-	local teleported = teleport_player_to_pocket(player_name, pocket_name)
-	if teleported then
-		return
-	end
-	if not teleported and count < 10 then
-		minetest.after(1, teleport_to_pending, pocket_name, player_name, count + 1)
-		return
-	end
-	minetest.chat_send_player(player_name, S("Teleport to personal pocket dimension @1 failed after @2 tries.", pocket_name, count))
-end
 
 local teleport_to_personal_pocket = function(player_name)
 	local pocket_data = get_personal_pocket(player_name)
@@ -55,23 +39,14 @@ local teleport_to_personal_pocket = function(player_name)
 	end
 
 	-- Find an unused default name
-	local new_pocket_name = player_name
-	if get_pocket(new_pocket_name) then
-		local count = 1
-		local new_pocket_name_prefix = new_pocket_name
-		new_pocket_name = new_pocket_name_prefix .. " " .. count
-		while get_pocket(new_pocket_name) do
-			count = count + 1
-			new_pocket_name = new_pocket_name_prefix .. " " .. count
-		end
-	end
+	local new_pocket_name = pocket_dimensions.unused_pocket_name(player_name)
 
 	local success, message = create_pocket(new_pocket_name, {type="grassy"})
 	if success then
 		pocket_data = get_pocket(new_pocket_name)
 		set_personal_pocket(pocket_data, player_name)
 		set_owner(pocket_data, player_name)
-		teleport_to_pending(new_pocket_name, player_name, 1)
+		pocket_dimensions.teleport_to_pending(new_pocket_name, player_name, 1)
 	end
 	minetest.chat_send_player(player_name, message)
 end
