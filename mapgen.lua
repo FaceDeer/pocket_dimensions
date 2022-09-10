@@ -98,6 +98,82 @@ pocket_dimensions.register_border_type(S("Glass"), {name = "pocket_dimensions:bo
 ---------------------------------------------------------------
 -- Pocket mapgens
 
+local copy_location = function(pocket_data)
+	if pocket_data.origin_location == nil then
+		minetest.log("error", "[pocket_dimensions] 'copy location' mapgen called without an origin_location set")
+		return pocket_data.minp
+	end
+	
+	local copy_meta = pocket_data.copy_origin_metadata
+
+	local minp = pocket_data.minp
+	local maxp = vector.add(minp, pocket_size)
+	local vm = minetest.get_voxel_manip(minp, maxp)
+	local emin, emax = vm:get_emerged_area()
+	local data = vm:get_data()
+	local dataparam2 = vm:get_param2_data()
+	local area = VoxelArea:new{MinEdge = emin, MaxEdge = emax}
+
+	local source_minp = pocket_data.origin_location
+	local source_maxp = vector.add(source_minp, pocket_size)
+	local source_vm = minetest.get_voxel_manip(source_minp, source_maxp)
+	local source_emin, source_emax = source_vm:get_emerged_area()
+	local source_data = source_vm:get_data()
+	local source_dataparam2 = source_vm:get_param2_data()
+	local source_area = VoxelArea:new{MinEdge = source_emin, MaxEdge = source_emax}
+	
+	for vi, x, y, z in area:iterp_xyz(minp, maxp) do
+		if x == minp.x or x == maxp.x or y == minp.y or y == maxp.y or z == minp.z or z == maxp.z then
+			data[vi] = c_border_glass
+		else
+			local target_pos = vector.new(x,y,z)
+			local diff = vector.subtract(target_pos, minp)
+			local source_pos = vector.add(source_minp, diff)
+			local source_vi = source_area:indexp(source_pos)
+			if source_area:containsp(source_pos) then
+				data[vi] = source_data[source_vi]
+				dataparam2[vi] = source_dataparam2[source_vi]
+			else
+				minetest.log("error", "[pocket_dimensions] tried copying from " .. minetest.pos_to_string(source_pos) .. " but that wasn't within area " .. dump(source_area))
+			end
+		end
+	end
+	
+	vm:set_data(data)
+	vm:set_param2_data(dataparam2)
+	vm:write_to_map()
+
+	local displacement = vector.subtract(minp, source_minp)
+	local meta_nodes = minetest.find_nodes_with_meta(vector.add(source_minp,1), vector.subtract(source_maxp,1))
+	for _, source_pos in ipairs(meta_nodes) do
+		local source_node = minetest.get_node(source_pos)
+		local target_pos = vector.add(source_pos, displacement)
+		local target_node = minetest.get_node(target_pos)
+		if source_node.name == target_node.name then
+			if copy_meta then
+				local source_meta = minetest.get_meta(source_pos):to_table()
+				local target_meta = minetest.get_meta(target_pos)
+				target_meta:from_table(source_meta)
+			else
+				local target_def = minetest.registered_nodes[target_node.name]
+				if target_def.on_construct then
+					target_def.on_construct(target_pos)
+				end
+			end
+		else
+			minetest.log("error", "[pocket_dimensions] tried copying metadata from " .. minetest.pos_to_string(source_pos)
+				.. " (a ".. source_node.name..") to " .. minetest.pos_to_string(target_pos)
+				.. " (a ".. target_node.name..")")
+		end
+	end
+
+	return vector.add(minp, math.floor(pocket_size/2))
+end
+
+register_pocket_type("copy location", copy_location)
+
+----------------------------------------------------------------------------------------------------
+
 local scale_magnitude = 5
 
 local perlin_params = {
@@ -120,6 +196,7 @@ local terrain_map = PerlinNoiseMap(
 	{x=pocket_size, y=pocket_size, z=pocket_size}
 )
 
+if c_stone then
 -- Once the map block for the new pocket dimension is loaded, this initializes its node layout and finds a default spot for arrivals to teleport to
 local grassy_mapgen = function(pocket_data)
 	local minp = pocket_data.minp
@@ -272,76 +349,7 @@ local desert_mapgen = function(pocket_data)
 end
 
 register_pocket_type("desert", desert_mapgen)
-
-
-----------------------------------------------------------------------------------------------------
-
-local copy_location = function(pocket_data)
-
-	if pocket_data.origin_location == nil then
-		minetest.log("error", "[pocket_dimensions] 'copy location' mapgen called without an origin_location set")
-		return pocket_data.minp
-	end
-
-	local minp = pocket_data.minp
-	local maxp = vector.add(minp, pocket_size)
-	local vm = minetest.get_voxel_manip(minp, maxp)
-	local emin, emax = vm:get_emerged_area()
-	local data = vm:get_data()
-	local dataparam2 = vm:get_param2_data()
-	local area = VoxelArea:new{MinEdge = emin, MaxEdge = emax}
-
-	local source_minp = pocket_data.origin_location
-	local source_maxp = vector.add(source_minp, pocket_size)
-	local source_vm = minetest.get_voxel_manip(source_minp, source_maxp)
-	local source_emin, source_emax = source_vm:get_emerged_area()
-	local source_data = source_vm:get_data()
-	local source_dataparam2 = source_vm:get_param2_data()
-	local source_area = VoxelArea:new{MinEdge = source_emin, MaxEdge = source_emax}
-	
-	for vi, x, y, z in area:iterp_xyz(minp, maxp) do
-		if x == minp.x or x == maxp.x or y == minp.y or y == maxp.y or z == minp.z or z == maxp.z then
-			data[vi] = c_border_glass
-		else
-			local target_pos = vector.new(x,y,z)
-			local diff = vector.subtract(target_pos, minp)
-			local source_pos = vector.add(source_minp, diff)
-			local source_vi = source_area:indexp(source_pos)
-			if source_area:containsp(source_pos) then
-				data[vi] = source_data[source_vi]
-				dataparam2[vi] = source_dataparam2[source_vi]
-			else
-				minetest.log("error", "[pocket_dimensions] tried copying from " .. minetest.pos_to_string(source_pos) .. " but that wasn't within area " .. dump(source_area))
-			end
-		end
-	end
-	
-	vm:set_data(data)
-	vm:set_param2_data(dataparam2)
-	vm:write_to_map()
-
-	local displacement = vector.subtract(minp, source_minp)
-	local meta_nodes = minetest.find_nodes_with_meta(vector.add(source_minp,1), vector.subtract(source_maxp,1))
-	for _, source_pos in ipairs(meta_nodes) do
-		local source_node = minetest.get_node(source_pos)
-		local target_pos = vector.add(source_pos, displacement)
-		local target_node = minetest.get_node(target_pos)
-		if source_node.name == target_node.name then
-			local source_meta = minetest.get_meta(source_pos):to_table()
-			local target_meta = minetest.get_meta(target_pos)
-			target_meta:from_table(source_meta)
-		else
-			minetest.log("error", "[pocket_dimensions] tried copying metadata from " .. minetest.pos_to_string(source_pos)
-				.. " (a ".. source_node.name..") to " .. minetest.pos_to_string(target_pos)
-				.. " (a ".. target_node.name..")")
-		end
-	end
-
-	return vector.add(minp, math.floor(pocket_size/2))
 end
-
-register_pocket_type("copy location", copy_location)
-
 
 -----------------------------------------------------------------------------------------------------
 

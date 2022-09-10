@@ -162,6 +162,7 @@ minetest.register_on_player_receive_fields(function(player, formname, fields)
 		local override_def = {type=fields.create_type}
 		if fields.create_type == "copy location" then
 			override_def.origin_location=vector.subtract(vector.round(player:get_pos()), math.floor(pocket_size/2))
+			override_def.copy_origin_metadata = true
 		end
 		local success, message = create_pocket(fields.pocket_name, override_def)
 		if success then

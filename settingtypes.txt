@@ -3,12 +3,14 @@
 #altitude in the course of gameplay. Don't change this value once pocket
 #dimensions have been created or they will be inaccessible
 pocket_dimensions_altitude (Approximate y coordinate pocket dimensions will exist at) int 30000
+
+[Player crafting]
+
 pocket_dimensions_portal_keys_enabled (Enable portable portal keys) bool false
 #Only has meaning if some kind of portal keys are enabled
 pocket_dimensions_portal_key_uses (Pocket key uses before it breaks - 0 for infinite) int 0
-
-pocket_dimensions_craftable_portals (Allow new uninitalized portal nodes to be crafted) bool false
-pocket_dimensions_craftable_pocket_dimensions (Allow new pocket dimensions to be "crafted" from an special portal node) bool false
+pocket_dimensions_craftable_portals (Allow new uninitialized portal nodes to be crafted) bool false
+pocket_dimensions_craftable_pocket_dimensions (Allow new pocket dimensions to be "crafted" from a special portal forge) bool false
 
 [Personal pockets]
 

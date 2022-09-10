@@ -166,13 +166,14 @@ end)
 
 
 -----------------------------------------------------------------------------------------------------
--- Create pocket dimensions
+-- Creating pocket dimensions
 
 if not craftable_pockets then return end
 
 local target_value = 256000
 
-local get_item_value = function(item_stack)
+-- expose so that other mods can modify or replace this
+pocket_dimensions.get_item_value = function(item_stack)
 	local item_name = item_stack:get_name()
 	local item_count = item_stack:get_count()
 	
@@ -266,7 +267,7 @@ minetest.register_node("pocket_dimensions:pocket_forge", {
 	allow_metadata_inventory_put = function(pos, listname, index, stack, player)
         -- Called when a player wants to put something into the inventory.
         -- Return value: number of items allowed to put.
-		if get_item_value(stack) > 0 then
+		if pocket_dimensions.get_item_value(stack) > 0 then
 			return -1
 		end
 		return 0
@@ -275,7 +276,7 @@ minetest.register_node("pocket_dimensions:pocket_forge", {
 	on_metadata_inventory_put = function(pos, listname, index, stack, player)
 		local player_name = player:get_player_name()
 		local meta = minetest.get_meta(pos)
-		local new_value = math.min(meta:get_int("value") + get_item_value(stack), target_value)
+		local new_value = math.min(meta:get_int("value") + pocket_dimensions.get_item_value(stack), target_value)
 		meta:set_int("value", new_value)
 		update_infotext(pos)
 		minetest.show_formspec(player_name, portal_craft_formspec_name, get_create_formspec(player_name))
@@ -299,7 +300,7 @@ minetest.register_on_player_receive_fields(function(player, formname, fields)
 	local value = meta:get_int("value")
 	if fields.create and value >= target_value then
 		local new_pocket_name = pocket_dimensions.unused_pocket_name(player_name)
-		local success, message = create_pocket(new_pocket_name, {type="grassy"})
+		local success, message = create_pocket(new_pocket_name, {type="copy location", origin_location = vector.subtract(pos, math.floor(pocket_dimensions.pocket_size/2))})
 		if success then
 			pocket_data = pocket_dimensions.get_pocket(new_pocket_name)
 			set_owner(pocket_data, player_name)
