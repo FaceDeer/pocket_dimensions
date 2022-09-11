@@ -106,20 +106,6 @@ if personal_pockets_key then
 	else
 		minetest.register_craftitem("pocket_dimensions:personal_key", trigger_def)
 	end
-	
-	if default_modpath then
-		minetest.register_craft({
-			output = "pocket_dimensions:personal_key",
-			recipe = {
-			{"default:mese_crystal","default:skeleton_key"}
-		}})
-	elseif mcl_core_modpath then
-		minetest.register_craft({
-			output = "pocket_dimensions:personal_key",
-			recipe = {
-			{"mesecons_torch:redstoneblock","group:compass"}
-		}})		
-	end
 end
 
 if personal_pockets_spawn then

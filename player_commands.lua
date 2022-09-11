@@ -255,8 +255,9 @@ get_config_formspec = function(player_name, pocket_data)
 		.."field[0.0,1;3,0.5;name_permitted;;]"
 		.."label[3.25,1.25;<-]"
 		.."button[3.5,1;3,0.5;give_permission;"..S("Give Permission").."]"
+		.."button[0,1.5;3,0.5;set_entry;"..S("Set Entry Location").."]"
 	if minetest.check_player_privs(player_name, {server = true}) then
-		formspec[#formspec+1] = "button[0,1.5;3,0.5;admin;" .. S("Admin Screen") .. "]"
+		formspec[#formspec+1] = "button[1.75,2;3,0.5;admin;" .. S("Admin Screen") .. "]"
 	end
 	formspec[#formspec+1] = "container_end[]"
 	return table.concat(formspec)
@@ -347,6 +348,21 @@ minetest.register_on_player_receive_fields(function(player, formname, fields)
 		refresh = true
 	end
 	
+	if fields.set_entry then
+		local pos = player:get_pos()
+		local current_pocket_data = pocket_containing_pos(pos)
+		if not current_pocket_data then
+			minetest.chat_send_player(player_name, S("You're not inside a pocket dimension right now."))
+			return
+		end
+		if player_name ~= current_pocket_data.owner and not minetest.check_player_privs(player_name, "server") then
+			minetest.chat_send_player(player_name, S("You don't have permission to change the entry point of pocket dimension @1.", current_pocket_data.name))
+			return
+		end
+		set_destination(current_pocket_data, pos)
+		minetest.chat_send_player(player_name, S("The entry point for pocket dimension @1 has been updated", current_pocket_data.name))
+	end
+	
 	if fields.admin and minetest.check_player_privs(player_name, {server = true}) then
 		minetest.show_formspec(player_name, "pocket_dimensions:admin", get_admin_formspec(player_name))
 	end
@@ -359,57 +375,8 @@ end)
 -------------------------------------------------------------------------------------------------------
 -- Player commands
 
-minetest.register_chatcommand("pocket_entry", {
-	params = "",
---	privs = {}, -- TODO a new privilege here?
-	description = S("Set the entry point of the pocket dimension you're in to where you're standing."),
-	func = function(player_name, param)
-		local pos = minetest.get_player_by_name(player_name):get_pos()
-		local pocket_data = pocket_containing_pos(pos)
-		if not pocket_data then
-			minetest.chat_send_player(player_name, S("You're not inside a pocket dimension right now."))
-			return
-		end
-		if player_name ~= pocket_data.owner and not minetest.check_player_privs(player_name, "server") then
-			minetest.chat_send_player(player_name, S("You don't have permission to change the entry point of pocket dimension @1.", pocket_data.name))
-			return
-		end
-		set_destination(pocket_data, pos)
-		minetest.chat_send_player(player_name, S("The entry point for pocket dimension @1 has been updated", pocket_data.name))
-	end,
-})
-
-minetest.register_chatcommand("pocket_rename", {
-	params = "pocketname",
---	privs = {}, -- TODO a new privilege here?
-	description = S("Renames the pocket dimension you're inside."),
-	func = function(player_name, param)
-		if param == nil or param == "" then
-			minetest.chat_send_player(player_name, S("Please provide a name as a parameter to this command."))
-			return
-		end
-		local pos = minetest.get_player_by_name(player_name):get_pos()
-		local pocket_data = pocket_containing_pos(pos)
-		if not pocket_data then
-			minetest.chat_send_player(player_name, S("You're not inside a pocket dimension right now."))
-			return
-		end		
-		if player_name ~= pocket_data.owner and not minetest.check_player_privs(player_name, "server") then
-			minetest.chat_send_player(player_name, S("You don't have permission to change the name of pocket dimension @1.", pocket_data.name))
-			return
-		end
-		local oldname = pocket_data.name
-		if rename_pocket(oldname, param) then
-			minetest.chat_send_player(player_name, S("The name of pocket dimension @1 has been changed to \"@2\".", oldname, param))
-		else
-			minetest.chat_send_player(player_name, S("A pocket dimension with that name already exists"))
-		end
-	end,
-})
-
 minetest.register_chatcommand("pocket_name", {
 	params = "",
---	privs = {}, -- TODO a new privilege here?
 	description = S("Finds the name of the pocket dimension you're inside right now."),
 	func = function(player_name, param)
 		local pos = minetest.get_player_by_name(player_name):get_pos()

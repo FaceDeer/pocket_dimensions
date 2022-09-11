@@ -8,5 +8,6 @@ dofile(MP.."/player_commands.lua")
 dofile(MP.."/public_portals.lua")
 dofile(MP.."/personal_pockets.lua")
 dofile(MP.."/pocket_keys.lua")
-
+dofile(MP.."/pocket_forge.lua")
+dofile(MP.."/crafting.lua")
 

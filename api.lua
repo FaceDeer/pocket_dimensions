@@ -237,7 +237,7 @@ local teleport_player = function(player, dest)
 	minetest.sound_play({name="pocket_dimensions_teleport_to"}, {pos = dest}, true)
 end
 
-pocket_dimensions.teleport_player_to_pocket = function(player_name, pocket_name)
+pocket_dimensions.teleport_player_to_pocket = function(player_name, pocket_name, origin_override)
 	local pocket_data = pocket_dimensions.get_pocket(pocket_name)
 	if pocket_data == nil or pocket_data.pending then
 		return false
@@ -245,7 +245,11 @@ pocket_dimensions.teleport_player_to_pocket = function(player_name, pocket_name)
 
 	local player = minetest.get_player_by_name(player_name)
 	if not player_origin[player_name] then
-		player_origin[player_name] = player:get_pos()
+		if origin_override then
+			player_origin[player_name] = origin_override
+		else
+			player_origin[player_name] = player:get_pos()
+		end
 	end
 	teleport_player(player, pocket_data.destination)
 	pocket_data.last_accessed = minetest.get_gametime()

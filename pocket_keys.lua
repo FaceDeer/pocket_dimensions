@@ -105,17 +105,3 @@ if trigger_tool_capabilities then
 else
 	minetest.register_craftitem("pocket_dimensions:key", imprinted_trigger_def)
 end
-	
-if default_modpath then
-	minetest.register_craft({
-		output = "pocket_dimensions:unimprinted_key",
-		recipe = {
-		{"default:mese_crystal","default:skeleton_key","default:mese_crystal"},
-	}})
-elseif mcl_core_modpath then
-	minetest.register_craft({
-		output = "pocket_dimensions:unimprinted_key",
-		recipe = {
-		{"mesecons_torch:redstoneblock","group:compass","mesecons_torch:redstoneblock"},
-	}})		
-end
