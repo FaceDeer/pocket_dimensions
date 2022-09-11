@@ -122,6 +122,16 @@ minetest.register_node("pocket_dimensions:portal", {
 		}
 	},
 	
+	-- self-destruct if metadata's broken
+	on_construct = function(pos)
+		minetest.after(0.1, function()
+			local meta = minetest.get_meta(pos)
+			if not meta:contains("pocket_dest") then
+				minetest.set_node(pos, {name="air"})
+			end
+		end)
+	end,
+	
 	preserve_metadata = function(pos, oldnode, oldmeta, drops)
 		local item_metadata = drops[1]:get_meta()
 		local value = oldmeta.pocket_dest
@@ -135,6 +145,14 @@ minetest.register_node("pocket_dimensions:portal", {
 
 	after_place_node = function(pos, placer, itemstack, pointed_thing)
 		local meta = minetest.get_meta(pos)
+		-- self-destruct if the metadata's broken
+		if not meta:contains("pocket_dest") then
+			minetest.set_node(pos, {name="air"})
+			minetest.log("error", "[pocket_dimensions] Player " .. placer:get_player_name()
+				.. " tried placing a pocket_dimensions:portal "
+				.. "with broken metadata at " .. minetest.pos_to_string(pos) .. ".")
+			return
+		end
 		local item_meta = itemstack:get_meta()
 		local pocket_dest = item_meta:get_string("pocket_dest")
 		meta:set_string("pocket_dest", pocket_dest)
@@ -161,7 +179,9 @@ minetest.register_abm({
 					player_pos = vector.floor(vector.add(player_pos, {x=0.5, y=0, z=0.5}))
 					if vector.equals(pos, player_pos) then
 						local player_name = player:get_player_name()
-						teleport_player_to_pocket(player_name, pocket_data.name, {x=pos.x, y=pos.y, z=pos.z})
+						-- overriding the origin to pos actually puts the player back slightly inside the node,
+						-- which prevents it from immediately teleporting them back. Hacky, but hey, it works.
+						teleport_player_to_pocket(player_name, pocket_data.name, pos)
 					end
 				end
 			end		

@@ -20,19 +20,21 @@ local teleport_player_to_pocket = pocket_dimensions.teleport_player_to_pocket
 local get_all_border_types = pocket_dimensions.get_all_border_types
 local set_border = pocket_dimensions.set_border
 
+local portal_formspec_state = {}
+
 local get_create_formspec = function(player_name)
 	local state = portal_formspec_state[player_name]
 	local pos = state.pos
 	local inv_loc = "nodemeta:"..pos.x..","..pos.y..","..pos.z
 	local meta = minetest.get_meta(pos)
-	local current_value = meta:get_int("value")
+	local current_value = meta:get_float("value")
 	
 	local formspec = {
 		"formspec_version[2]"
 		.."size[11,8.5]"
 		.."container[1.5,0.5]"
 			.."box[0,0;8,1;#222222ff]box[0,0.1;".. tostring(current_value/pocket_dimensions.pocket_forge_target_value * 8)..",0.85;#ff00ff44]"
-			.."label[3.25,0.5;"..tostring(current_value).."/"..tostring(pocket_dimensions.pocket_forge_target_value).."]"
+			.."label[3.5,0.5;"..tostring(math.floor(current_value/pocket_dimensions.pocket_forge_target_value *1000000)/10000).."%]"
 		.."container_end[]"
 		.."list[current_player;main;0.625,3;8,4;]"
 	}
@@ -48,9 +50,13 @@ end
 local portal_craft_formspec_name = "pocket_dimensions:portal_craft"
 local update_infotext = function(pos)
 	local meta = minetest.get_meta(pos)
-	local value = meta:get_int("value")
+	local value = meta:get_float("value")
 	if value > 0 then
-		meta:set_string("infotext", S("Partly Charged Pocket Dimension Forge (@1%)", math.floor(value/pocket_dimensions.pocket_forge_target_value*100)))
+		if value < pocket_dimensions.pocket_forge_target_value then
+			meta:set_string("infotext", S("Partly Charged Pocket Dimension Forge (@1%)", math.floor(value/pocket_dimensions.pocket_forge_target_value*100)))
+		else
+			meta:set_string("infotext", S("Fully Charged Pocket Dimension Forge"))
+		end
 	end
 end
 
@@ -78,17 +84,21 @@ minetest.register_node("pocket_dimensions:pocket_forge", {
 	preserve_metadata = function(pos, oldnode, oldmeta, drops)
 		local item_metadata = drops[1]:get_meta()
 		local value = tonumber(oldmeta.value or 0)
-		item_metadata:set_int("value", value)
+		item_metadata:set_float("value", value)
 		if value > 0 then
+		if value < pocket_dimensions.pocket_forge_target_value then
 			item_metadata:set_string("description", S("Partly Charged Pocket Dimension Forge (@1%)", math.floor(value/pocket_dimensions.pocket_forge_target_value*100)))
+		else
+			item_metadata:set_string("description", S("Fully Charged Pocket Dimension Forge"))
+		end
 		end
 	end,
 
 	after_place_node = function(pos, placer, itemstack, pointed_thing)
 		local meta = minetest.get_meta(pos)
 		local item_meta = itemstack:get_meta()
-		local value = item_meta:get_int("value")
-		meta:set_int("value", value)
+		local value = item_meta:get_float("value")
+		meta:set_float("value", value)
 		update_infotext(pos)
 	end,
 	
@@ -104,8 +114,8 @@ minetest.register_node("pocket_dimensions:pocket_forge", {
 	on_metadata_inventory_put = function(pos, listname, index, stack, player)
 		local player_name = player:get_player_name()
 		local meta = minetest.get_meta(pos)
-		local new_value = math.min(meta:get_int("value") + pocket_dimensions.get_item_value(stack), pocket_dimensions.pocket_forge_target_value)
-		meta:set_int("value", new_value)
+		local new_value = math.min(meta:get_float("value") + pocket_dimensions.get_item_value(stack), pocket_dimensions.pocket_forge_target_value)
+		meta:set_float("value", new_value)
 		update_infotext(pos)
 		minetest.show_formspec(player_name, portal_craft_formspec_name, get_create_formspec(player_name))
 	end,
@@ -125,7 +135,7 @@ minetest.register_on_player_receive_fields(function(player, formname, fields)
 	local player_name = player:get_player_name()
 	local pos = portal_formspec_state[player_name].pos
 	local meta = minetest.get_meta(pos)
-	local value = meta:get_int("value")
+	local value = meta:get_float("value")
 	if fields.create and value >= pocket_dimensions.pocket_forge_target_value then
 		local new_pocket_name = pocket_dimensions.unused_pocket_name(player_name)
 		local success, message = create_pocket(new_pocket_name, {type="copy location", origin_location = vector.subtract(pos, math.floor(pocket_dimensions.pocket_size/2))})

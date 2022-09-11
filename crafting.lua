@@ -42,7 +42,7 @@ local craftable_pockets = minetest.settings:get_bool("pocket_dimensions_craftabl
 if craftable_pockets then
 
 	-- these are exposed so that other mods can fiddle with them
-	pocket_dimensions.pocket_forge_target_value = 256000
+	pocket_dimensions.pocket_forge_target_value = 100
 	pocket_dimensions.get_item_value = function(item_stack)
 		local item_name = item_stack:get_name()
 		local item_count = item_stack:get_count()
@@ -50,14 +50,14 @@ if craftable_pockets then
 		if item_name == "pocket_dimensions:pocket_forge" then
 			local meta = item_stack:get_meta()
 			local value = meta:get_int("value")
-			return 1 + value
+			return 1/2560 + value
 		end
 		
 		if item_name == "default:cobble" then
-			return 10000*item_count
+			return item_count
 		end
 		if minetest.registered_nodes[item_name] then
-			return item_count
+			return item_count * 1/2560
 		end
 		return 0
 	end
