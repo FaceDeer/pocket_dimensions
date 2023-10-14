@@ -1,3 +1,4 @@
 pocket_dimensions_footstep - from https://freesound.org/people/LordFluffeh/sounds/478545/ by LordFluffeh 2019 under the CC0 public domain license
 pocket_dimensions_teleport_to and pocket_dimension_teleport_from https://freesound.org/people/michalwa2003/sounds/419375/ by michalwa2003 under the CC-BY 3.0 license
 pocket_dimensions_key_break - Lights smashed by Lloyd Jackson, recorded by Brady Leduc at Pulsworks Audio Arts. Posted at https://freesound.org/people/sandyrb/sounds/148073/ by sandryrb under the CC-BY 3.0 license
+pocket_dimensions_big_explosion - By Bratish, released under CC0 https://freesound.org/people/Bratish/sounds/500795/

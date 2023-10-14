@@ -10,11 +10,12 @@ local personal_pockets_enabled = personal_pockets_chat_command or personal_pocke
 
 -- pocket data tables have the following properties:
 -- pending = true -- pocket is being initialized, don't teleport there just yet
--- destination = a vector relative to the pocket's minp that is where new arrivals teleport tonumber
+-- destination = a vector relative to the pocket's minp that is where new arrivals teleport to
 -- name = a name for the pocket.
 -- owner = if set, this pocket is "owned" by this particular player.
 -- protected = if true, this pocket is protected and only the owner can modify its contents
 -- minp = the lower corner of the pocket's region
+-- last_accessed = the gametime when this pocket was last accessed (minetest.get_gametime())
 
 local pockets_by_name = {}
 local player_origin = {}
@@ -110,7 +111,7 @@ end
 pocket_dimensions.set_protection = function(pocket_data, protection)
 	pocket_data.protected = protection
 	-- clear any existing protection
-	protected = protected_areas:get_areas_for_pos(pocket_data.minp)
+	local protected = protected_areas:get_areas_for_pos(pocket_data.minp)
 	for id, _ in pairs(protected) do -- there should only be one result
 		protected_areas:remove_area(id)
 	end
@@ -167,6 +168,7 @@ pocket_dimensions.get_deleted_pockets = function()
 end
 
 pocket_dimensions.pocket_containing_pos = function(pos)
+	if pos == nil then return end
 	for name, pocket_data in pairs(pockets_by_name) do
 		local pos_diff = vector.subtract(pos, pocket_data.minp)
 		if pos_diff.y >=0 and pos_diff.y <= mapblock_size and -- check y first to eliminate possibility player's not in a pocket dimension at all
@@ -193,14 +195,18 @@ end
 
 pocket_dimensions.set_destination = function(pocket_data, destination)
 	local dest = vector.round(destination)
-	assert(dest.x > pocket_data.minp.x and dest.y > pocket_data.minp.y and dest.z > pocket_data.minp.z 
+	if not (dest.x > pocket_data.minp.x and dest.y > pocket_data.minp.y and dest.z > pocket_data.minp.z 
 		and dest.x < pocket_data.minp.x + mapblock_size
 		and dest.y < pocket_data.minp.y + mapblock_size
-		and dest.z < pocket_data.minp.z + mapblock_size,
+		and dest.z < pocket_data.minp.z + mapblock_size)
+	then minetest.log("error",
 			"[pocket_dimensions] attempting to set destination point " ..
 			minetest.pos_to_string(dest) ..
 			" that wasn't within pocket dimension "..
-			pocket_data.name)
+			pocket_data.name
+			.. " (minp " .. minetest.pos_to_string(pocket_data.minp) .. ")")
+		dest = {x=pocket_data.minp.x+2,y=pocket_data.minp.y+2,z=pocket_data.minp.z+2}
+	end
 	pocket_data.destination = dest
 	save_data()
 end
@@ -251,9 +257,10 @@ pocket_dimensions.teleport_player_to_pocket = function(player_name, pocket_name)
 	local player = minetest.get_player_by_name(player_name)
 	if not player_origin[player_name] then
 		player_origin[player_name] = player:get_pos()
-		save_data()
 	end
 	teleport_player(player, pocket_data.destination)
+	pocket_data.last_accessed = minetest.get_gametime()
+	save_data()
 	return true
 end
 
@@ -310,7 +317,10 @@ end
 
 local emerge_callback = function(blockpos, action, calls_remaining, pocket_data)
 	local mapgen_callback = mapgens[pocket_data.type]
-	assert(mapgen_callback, "[pocket_dimensions] pocket type " .. pocket_data.type .. " had no registered mapgen callback")
+	if mapgen_callback == nil then
+		minetest.log("error", "[pocket_dimensions] pocket type " .. pocket_data.type .. " had no registered mapgen callback")
+		return
+	end
 	local dest = mapgen_callback(pocket_data)
 	pocket_dimensions.set_destination(pocket_data, dest)
 	pocket_data.pending = nil
@@ -342,6 +352,7 @@ pocket_dimensions.create_pocket = function(pocket_name, pocket_data_override)
 				pocket_data[key] = value
 			end
 			minetest.emerge_area(pos, pos, emerge_callback, pocket_data)
+			pocket_data.last_accessed = minetest.get_gametime()
 			save_data()
 			minetest.log("action", "[pocket_dimensions] Created a pocket dimension named " .. pocket_name .. " at " .. minetest.pos_to_string(pos))
 			return true, S("Pocket dimension @1 created", pocket_name)
@@ -374,7 +385,7 @@ pocket_dimensions.delete_pocket = function(pocket_data, permanent)
 	local permanency_log = function(permanent) if permanent then return " Deletion was permanent." else return "" end end
 	local permanency_message = function(permanent) if permanent then return " " .. S("Deletion was permanent.") else return "" end end
 	minetest.log("action", "[pocket_dimensions] Deleted the pocket dimension " .. pocket_data.name .. " at " .. minetest.pos_to_string(pocket_data.minp).. "." .. permanency_log())
-	return true, S("Deleted pocket dimension @1 at @2. Note that this doesn't affect the map.", pocket_data.name, minetest.pos_to_string(pocket_data.minp)) .. permanency_message()
+	return true, S("Deleted pocket dimension @1 at @2. Note that this doesn't affect the map, it only removes this from the pocket dimension list.", pocket_data.name, minetest.pos_to_string(pocket_data.minp)) .. permanency_message()
 end
 
 pocket_dimensions.undelete_pocket = function(pocket_data)

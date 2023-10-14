@@ -60,9 +60,12 @@ if not personal_pockets_respawn then
 end
 -- Done verification
 
+local portal_keys_enabled = minetest.settings:get_bool("pocket_dimensions_portal_keys_enabled", false)
+
 local personal_pockets_enabled = personal_pockets_chat_command or personal_pockets_key or personal_pockets_spawn or personal_pockets_respawn
 
 -------------------------------------------------------------------------------
+-- Portal node
 
 local portal_formspec_state = {}
 
@@ -151,6 +154,96 @@ minetest.register_on_player_receive_fields(function(player, formname, fields)
 	end
 end)
 
+
+--------------------------------------------------------------------------------'
+-- Portal key, can be set to a destination from a portal node
+if portal_keys_enabled then
+	local trigger_wear_amount = 0
+	local trigger_tool_capabilities = nil
+	local trigger_help_addendum = ""
+
+	if personal_pockets_key_uses > 0 then
+		trigger_wear_amount = math.ceil(65535 / personal_pockets_key_uses)
+		trigger_tool_capabilities = {
+			full_punch_interval=1.5,
+			max_drop_level=1,
+			groupcaps={},
+			damage_groups = {},
+		}
+		trigger_help_addendum = S(" This tool can be used @1 times before breaking.", personal_pockets_key_uses)
+	end
+
+	local key_teleport = function(user, dest)
+		local dest = minetest.string_to_pos(dest)
+		if not dest then
+			return
+		end
+		local pocket_data = pocket_containing_pos(dest)
+		if not pocket_data then
+			return
+		end
+		local player_name = user:get_player_name()
+		if trigger_wear_amount > 0 and not minetest.is_creative_enabled(player_name) then
+			itemstack:add_wear(trigger_wear_amount)
+		end
+		teleport_player_to_pocket(player_name, pocket_data.name)
+	end
+
+
+	local trigger_def = {
+		description = S("Pocket Dimensional Key"),
+		_doc_items_longdesc = S("A triggering device that allows teleportation to a pocket dimension."),
+		_doc_items_usagehelp = S("When triggered, this tool and its user will be teleported to the linked pocket dimension.") .. trigger_help_addendum,
+		inventory_image = "pocket_dimensions_key.png",
+		tool_capabilites = trigger_tool_capabilities,
+		sound = {
+			breaks = "pocket_dimensions_key_break",
+		},
+		on_use = function(itemstack, user, pointed_thing)
+			local meta = itemstack:get_meta()
+			local dest = meta:get_string("pocket_dest")
+			if dest ~= "" then
+				key_teleport(user, dest)
+				return
+			elseif pointed_thing.type=="node" then
+				local node_target = minetest.get_node(pointed_thing.under)
+				if node_target.name == "pocket_dimensions:portal" then
+					local node_meta = minetest.get_meta(pointed_thing.under)
+					local dest = node_meta:get_string("pocket_dest")
+					local dest_pos = minetest.string_to_pos(dest)
+					local dest_pocket = pocket_containing_pos(dest_pos)
+					if dest_pocket then
+						meta:set_string("pocket_dest", dest)
+						meta:set_string("description", S('Key to Pocket Dimension "@1"', dest_pocket.name))
+					end
+				end
+			end
+		
+			return itemstack
+		end,
+	}
+
+	if trigger_tool_capabilities then
+		minetest.register_tool("pocket_dimensions:key", trigger_def)
+	else
+		minetest.register_craftitem("pocket_dimensions:key", trigger_def)
+	end
+		
+	if default_modpath then
+		minetest.register_craft({
+			output = "pocket_dimensions:key",
+			recipe = {
+			{"default:mese_crystal","default:skeleton_key","default:mese_crystal"},
+		}})
+	elseif mcl_core_modpath then
+		minetest.register_craft({
+			output = "pocket_dimensions:key",
+			recipe = {
+			{"mesecons_torch:redstoneblock","group:compass","mesecons_torch:redstoneblock"},
+		}})		
+	end
+end
+
 -------------------------------------------------------------------------------
 -- Admin commands
 
@@ -168,6 +261,7 @@ local get_admin_formspec = function(player_name)
 	formspec[#formspec+1] = "tablecolumns[text,tooltip="..S("Name")
 		..";text,tooltip="..S("Owner")
 		..";text,tooltip="..S("Protected")
+		..";text,tooltip="..S("Seconds since last access")
 	if personal_pockets_enabled then
 		formspec[#formspec+1] = ";text,tooltip="..S("Personal")
 	end
@@ -186,6 +280,7 @@ local get_admin_formspec = function(player_name)
 		undelete_toggle = "false"
 	end
 	
+	local current_gametime = minetest.get_gametime()
 	local i = 0
 	for _, pocket_data in pairs(table_to_use) do
 		i = i + 1
@@ -196,6 +291,7 @@ local get_admin_formspec = function(player_name)
 		formspec[#formspec+1] = minetest.formspec_escape(pocket_data.name)
 			..",".. minetest.formspec_escape(owner)
 			..","..tostring(pocket_data.protected or "false")
+			..","..tostring(current_gametime - (pocket_data.last_accessed or 0))
 		if personal_pockets_enabled then
 			formspec[#formspec+1] = ","..tostring(pocket_data.personal)
 		end
@@ -274,7 +370,11 @@ minetest.register_on_player_receive_fields(function(player, formname, fields)
 	end
 	
 	if fields.create then
-		local success, message = create_pocket(fields.pocket_name, {type=fields.create_type})
+		local override_def = {type=fields.create_type}
+		if fields.create_type == "copy location" then
+			override_def.origin_location=vector.subtract(vector.round(player:get_pos()), math.floor(pocket_size/2))
+		end
+		local success, message = create_pocket(fields.pocket_name, override_def)
 		if success then
 			refresh = true
 		end
@@ -372,8 +472,8 @@ if personal_pockets_enabled then
 		})
 	end
 	
-	if personal_pockets_key then		
-		local trigger_stack_size = 99
+	if personal_pockets_key then
+		local trigger_stack_size
 		local trigger_wear_amount = 0
 		local trigger_tool_capabilities = nil
 		local trigger_help_addendum = ""
@@ -394,7 +494,7 @@ if personal_pockets_enabled then
 			description = S("Personal Pocket Dimensional Key"),
 			_doc_items_longdesc = S("A triggering device that allows teleportation to your personal pocket dimension."),
 			_doc_items_usagehelp = S("When triggered, this tool and its user will be teleported to the user's personal pocket dimension.") .. trigger_help_addendum,
-			inventory_image = "pocket_dimensions_key.png",
+			inventory_image = "pocket_dimensions_personal_key.png",
 			stack_max = trigger_stack_size,
 			tool_capabilites = trigger_tool_capabilities,
 			sound = {
@@ -481,7 +581,7 @@ if personal_pockets_enabled then
 			end
 			return true
 		end)
-	end	
+	end
 end
 
 -------------------------------------------------------------------------------------------------------
@@ -504,6 +604,45 @@ minetest.register_chatcommand("pocket_entry", {
 		end
 		set_destination(pocket_data, pos)
 		minetest.chat_send_player(player_name, S("The entry point for pocket dimension @1 has been updated", pocket_data.name))
+	end,
+})
+
+minetest.register_chatcommand("pocket_protect", {
+	params = "[true|false]",
+--	privs = {}, -- TODO a new privilege here?
+	description = S("Set whether the pocket dimension you're in is protected from changes by non-owners."),
+	func = function(player_name, param)
+		local pos = minetest.get_player_by_name(player_name):get_pos()
+		local pocket_data = pocket_containing_pos(pos)
+		if not pocket_data then
+			minetest.chat_send_player(player_name, S("You're not inside a pocket dimension right now."))
+			return
+		end
+		if player_name ~= pocket_data.owner and not minetest.check_player_privs(player_name, "server") then
+			minetest.chat_send_player(player_name, S("You don't have permission to change the protection of pocket dimension @1.", pocket_data.name))
+			return
+		end
+		
+		local new_state
+		local param = string.sub(param,1,1)
+		if not param or param == "" then
+			new_state = not pocket_data.protected
+		elseif param == "t" or param == "T" then
+			new_state = true
+		elseif param == "f" or param == "F" then
+			new_state = false
+		else
+			minetest.chat_send_player(player_name, S("Parameter not recognized as 'true' or 'false.'"))
+			return
+		end
+		
+		if new_state then
+			set_protection(pocket_data, true)
+			minetest.chat_send_player(player_name, S("Pocket dimension @1 has been protected", pocket_data.name))
+		else
+			set_protection(pocket_data, false)
+			minetest.chat_send_player(player_name, S("Pocket dimension @1 has been unprotected", pocket_data.name))		
+		end
 	end,
 })
 
